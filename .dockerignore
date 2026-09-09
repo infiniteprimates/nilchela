@@ -1,0 +1,12 @@
+# Docker build context exclusions — keep the image build context lean.
+# The image only COPYs scripts/ (via the Dockerfile), but excluding these
+# prevents accidentally shipping repo/CI artifacts into the build context
+# (and keeps `docker build` fast).
+.git
+.github
+.gitignore
+.dockerignore
+README.md
+LICENSE*
+examples/
+*.md

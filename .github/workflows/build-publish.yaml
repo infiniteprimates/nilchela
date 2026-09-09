@@ -1,0 +1,66 @@
+# Build & publish the nilchela image to GHCR on version tags only.
+#
+# GHCR auto-creates the `ghcr.io/infiniteprimates/nilchela` package on first
+# push, but it defaults to PRIVATE — set its visibility to "public" in the GHCR
+# package settings to publish it. The workflow runs with the default
+# GITHUB_TOKEN, which has `packages: write` via the `permissions` block below.
+#
+# Multi-arch: builds native amd64 + arm64 in parallel via buildx (both your
+# x86 cluster and any arm64 host pull the correct manifest).
+name: build-publish
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]   # release only: v<semver> tags
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}   # infiniteprimates/nilchela
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for arm64 emulation during multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image tags & labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # No build-args: ZEROCLAW_VERSION and MISE_VERSION default from the
+          # Dockerfile ARG lines, the single source of truth. Bump there only.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

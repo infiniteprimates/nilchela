@@ -1,0 +1,73 @@
+# =============================================================================
+# mise.toml.example — comprehensive reference for nilchela
+#
+# This example shows the full range of what you can pin. Copy it to your own
+# deployment, replace every <version> with a concrete exact version, and mount
+# it at /config/mise.toml (or point MISE_GLOBAL_CONFIG_FILE at it).
+# =============================================================================
+
+# --- Sec. 1: TOOLS -----------------------------------------------------------
+# Exact-pin everything. Syntax per tool is `<tool> = "<version>"`, or the table
+# form for tools with options. No ranges, no "latest" — those force mise to hit
+# the network at install/start to resolve, defeating offline-quiet warm starts.
+[tools]
+
+# Runtimes & languages
+go       = "<version>"                        # e.g. "1.27.1"
+node     = "<version>"                        # e.g. "24.20.0" (active LTS)
+python   = "<version>"                        # e.g. "3.14.7" (exact patch)
+rust     = { version = "<version>", profile = "default" }
+#           profile: minimal | default | complete
+#             minimal  = rustc + cargo + rust-std (smallest)
+#             default  = minimal + rust-docs + rustfmt + clippy  (RECOMMENDED)
+#             complete = avoid — includes every component, often fails
+
+# Package managers / accelerators
+uv       = "<version>"                        # fast python package manager
+
+# CLIs & ops tools (installed via mise backends, not apt)
+gh       = "<version>"                        # GitHub CLI
+# + anything else you need, e.g.:
+#   terraform = "<version>"
+#   kubectl   = "<version>"
+
+# --- Sec. 2: OPTIONAL PER-TOOL OPTIONS --------------------------------------
+# Rust cross-compilation targets, if you need them:
+# rust = { version = "<version>", profile = "default",
+#          targets = ["wasm32-unknown-unknown", "x86_64-pc-windows-msvc"] }
+#
+# Rust extra components (rust-src for embedded/std-lib hacking):
+# rust = { version = "<version>", profile = "default",
+#          components = ["rust-src", "llvm-tools"] }
+#
+# Install-time env for a tool (e.g. a dist mirror):
+# rust = { version = "<version>", install_env = { RUSTUP_DIST_SERVER = "https://static.rust-lang.org" } }
+
+# --- Sec. 3: TOOLCHAIN RUNTIME ENVIRONMENT ----------------------------------
+# Surfaced by mise via `mise env`/shims; kept OUT of the Dockerfile so the
+# image stays decoupled from the toolchain set.
+#
+# Redirect build caches to a shared, bounded cache volume (or /tmp) so your
+# durable data volume doesn't fill with disposable registries.
+#
+# NOTE: these are cache POLICY, not mise boilerplate — each tool uses its own
+# cache-dir variable, so mise cannot infer them.
+[env]
+CARGO_HOME        = "/cache/cargo"            # rust crate registry + artifacts
+GOMODCACHE        = "/cache/go/pkg/mod"       # go module cache
+GOCACHE           = "/cache/go-build"         # go build cache
+NPM_CONFIG_CACHE  = "/cache/npm"              # node/npm cache
+UV_CACHE_DIR      = "/cache/uv"               # python/uv cache
+
+# You can also reference other vars and config_root:
+# PIP_CACHE_DIR = "/cache/pip"
+# PROJECT_CACHE = "{{ config_root }}/.cache"   # mise template syntax
+
+# --- Sec. 4: LOCKFILE NOTE --------------------------------------------------
+# For reproducible installs across machines, commit a mise.lock next to this
+# file (`mise lock`). Pair it with:
+#
+#   [tool_config]
+#   locked = true
+#
+# which forces installs to resolve strictly from the lockfile.

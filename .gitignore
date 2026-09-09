@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Local mise overrides (never commit personal pins)
+mise.local.toml
+
+# Lockfiles are intentionally committed if you use reproducibility lockdown
+# (see mise.example.toml Sec. 4). Do NOT blanket-ignore mise.lock.
+
+# Build/env
+.env
+.env.*

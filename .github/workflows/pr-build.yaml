@@ -1,0 +1,46 @@
+# Pull-request build validation — the gate.
+#
+# Builds the image (multi-arch, NO push) on every PR so a broken Dockerfile or
+# bad build-arg can't merge. This is the status check you mark "required" in
+# GitHub branch protection to gate merges.
+#
+# Deliberately does NOT log in to GHCR or push. `docker/build-push-action` with
+# `push: false` still fully compiles and layers both platforms (catching the
+# arch-arg class of bug we hit on arm64), it just never publishes anything.
+#
+# If build times become a problem, drop `linux/arm64` to validate amd64-only
+# (multi-arch correctness stays covered by build-publish.yaml on main).
+name: pr-build
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (arm64 emulation for multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (multi-arch, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          platforms: linux/amd64,linux/arm64
+          # No build-args: versions default from the Dockerfile ARG lines,
+          # the single source of truth (bump there only, not here).
+          # GHA cache dedupes against the publish workflow's cache, so the
+          # PR build is usually a warm, fast incremental build.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
