@@ -8,15 +8,14 @@
 # official ZeroClaw Debian base, then installs dev toolchains at *runtime* (not
 # build time).
 #
-# This image carries only three things:
+# This image carries only two things:
 #   1. OS-level tooling (apt) layered on the base's bash/curl/git/vim-tiny.
 #   2. The `mise` CLI — the version manager that installs dev toolchains.
-#   3. Trusted-config plumbing + the idempotent install script.
 #
 # Dev toolchains (go/node/python/rust/uv/gh) are installed at container start by
-# an initContainer running `mise install` (see scripts/mise-install.sh), reading
-# pins from a ConfigMap-mounted mise.toml. Version bumps = edit mise.toml + roll;
-# the image does NOT rebuild.
+# an initContainer running `mise install` directly, reading pins from a
+# ConfigMap-mounted mise.toml. Version bumps = edit mise.toml + roll; the image
+# does NOT rebuild.
 #
 # Design principles:
 #   * THIN IMAGE — no toolchains baked in (~300 MB vs ~3 GB). Fast pull.
@@ -79,10 +78,6 @@ ENV MISE_DATA_DIR=/tools \
     MISE_RUSTUP_HOME=/tools/rustup \
     MISE_CACHE_DIR=/cache/mise \
     PATH=/tools/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
-# Install-time script (the initContainer's entrypoint).
-COPY scripts/mise-install.sh /usr/local/bin/mise-install.sh
-RUN chmod +x /usr/local/bin/mise-install.sh
 
 # ---- Back to the image's non-root posture ----------------------------------
 USER 65534:65534

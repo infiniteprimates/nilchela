@@ -27,7 +27,7 @@ But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python
 
 ## How it works
 
-1. **Build a thin image** — OS tooling, `mise`, and an install script. No toolchains.
+1. **Build a thin image** — OS tooling + the `mise` CLI. No toolchains.
 2. **Pin tools in `mise.toml`** — exact versions for `go`, `node`, `python`, `rust`, `uv`, `gh`, and runtime env (build-cache locations). See [`mise.toml.example`](mise.toml.example).
 3. **Install at start** — an initContainer runs `mise install` into a mounted `/tools` volume (root-owned). `mise` is address-and-skip: a warm volume starts near-instantly, offline-quiet.
 4. **Run non-root** — the agent container mounts `/tools` read-only and invokes tools via shims on `PATH`.
@@ -100,9 +100,9 @@ docker run --rm \
   -e MISE_GLOBAL_CONFIG_FILE=/config/mise.toml \
   -e MISE_TRUSTED_CONFIG_PATHS=/config \
   -e MISE_CACHE_DIR=/cache/mise \
-  --entrypoint /usr/local/bin/mise-install.sh \
+  --entrypoint mise \
   -v zc-tools:/tools -v zc-cache:/cache -v /tmp/zc-pod/config:/config \
-  nilchela:dev
+  nilchela:dev install
 
 # "main container" — verify tools resolve through shims (read-only /tools)
 docker run --rm \
@@ -121,7 +121,7 @@ This repo intentionally ships **only the image recipe** — your cluster's manif
 
 The deployment shape in summary:
 
-- **An initContainer** runs `/usr/local/bin/mise-install.sh` (root) to populate a `/tools` volume from your pinned `mise.toml`.
+- **An initContainer** runs `mise install` (root) to populate a `/tools` volume from your pinned `mise.toml`.
 - **A second initContainer** `chown`s the shared `/cache` volume to `65534:65534`.
 - **The agent container** runs non-root (`65534`), mounts `/tools` read-only, and gets its toolchain env from shims + `mise.toml`'s `[env]`.
 
