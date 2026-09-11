@@ -8,6 +8,4 @@
 .dockerignore
 README.md
 LICENSE*
-examples/
-scripts/
 *.md

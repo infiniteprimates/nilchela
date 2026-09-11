@@ -8,9 +8,11 @@
 # official ZeroClaw Debian base, then installs dev toolchains at *runtime* (not
 # build time).
 #
-# This image carries only two things:
+# This image carries three things:
 #   1. OS-level tooling (apt) layered on the base's bash/curl/git/vim-tiny.
 #   2. The `mise` CLI — the version manager that installs dev toolchains.
+#   3. An ENTRYPOINT that runs the base daemon under `mise exec`, so the process
+#      inherits the toolchain env + [env] vars (see the ENTRYPOINT note below).
 #
 # Dev toolchains (go/node/python/rust/uv/gh) are installed at container start by
 # an initContainer running `mise install` directly, reading pins from a
@@ -69,15 +71,27 @@ RUN curl -fsSL https://mise.run -o /tmp/install-mise.sh \
 #
 # Toolchain RUNTIME env (CARGO_HOME, GOMODCACHE, GOCACHE, NPM_CONFIG_CACHE,
 # UV_CACHE_DIR, ...) deliberately does NOT live here. It belongs in mise.toml's
-# [env] section and is surfaced via `mise env` / shims. That keeps this Dockerfile
-# decoupled from the specific toolchain set — add a tool in mise.toml, no
-# image change needed.
+# [env] section and is surfaced via `mise env` — which the entrypoint sources,
+# and shims apply to child processes. That keeps this Dockerfile decoupled from
+# the specific toolchain set — add a tool in mise.toml, no image change needed.
+#
+# PATH is also omitted here on purpose: the entrypoint builds it via `mise env`
+# (shims + active tool dirs), a single source of truth instead of a hand-
+# maintained list that would drift as tools change.
 ENV MISE_DATA_DIR=/tools \
     MISE_GLOBAL_CONFIG_FILE=/config/mise.toml \
     MISE_TRUSTED_CONFIG_PATHS=/config \
     MISE_RUSTUP_HOME=/tools/rustup \
-    MISE_CACHE_DIR=/cache/mise \
-    PATH=/tools/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    MISE_CACHE_DIR=/cache/mise
+
+# ---- Entrypoint: run the base daemon under mise exec ----------------------
+# The base image runs ENTRYPOINT ["zeroclaw"] + CMD ["daemon"]. We override
+# ENTRYPOINT to `mise exec`, which applies the full mise environment (PATH via
+# shims + the mise.toml [env] vars) to the child process and runs it. CMD
+# ["daemon"] is inherited from the base and appended after `--`, yielding:
+#   mise exec -- /usr/local/bin/zeroclaw daemon
+# No wrapper script is needed — `mise exec` is the native primitive for this.
+ENTRYPOINT ["mise", "exec", "--", "/usr/local/bin/zeroclaw"]
 
 # ---- Back to the image's non-root posture ----------------------------------
 USER 65534:65534
