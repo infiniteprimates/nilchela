@@ -92,7 +92,7 @@ ENV MISE_DATA_DIR=/tools \
 #   mise exec -- /usr/local/bin/zeroclaw daemon
 # No wrapper script is needed — `mise exec` is the native primitive for this.
 ENTRYPOINT ["mise", "exec", "--", "/usr/local/bin/zeroclaw"]
-CMD daemon
+CMD ["daemon"]
 
 # ---- Back to the image's non-root posture ----------------------------------
 USER 65534:65534
