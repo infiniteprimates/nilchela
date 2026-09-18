@@ -44,138 +44,70 @@ But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python
 
 ---
 
-## Getting Started
+## Install
 
-### Prerequisites
+### Kubernetes (Helm)
 
-- Docker (with BuildKit, default in Docker 23+ / recent Docker Desktop)
-- Network access to `ghcr.io` (to pull the ZeroClaw base)
-
-### 1. Build the image
+This repo ships a reference chart at [`charts/nilchela`](charts/nilchela) — a thin wrapper around the [bjw-s `app-template`](https://bjw-s-labs.github.io/helm-charts/docs/app-template/) chart. It renders the StatefulSet, the three volumes, the `mise.toml` ConfigMap, and the ownership model described above.
 
 ```bash
-docker build \
-  -f Dockerfile \
-  -t nilchela:dev \
-  .
+git clone https://github.com/infiniteprimates/nilchela.git
+cd nilchela
+
+helm dependency build charts/nilchela
+helm install nilchela charts/nilchela --namespace nilchela --create-namespace
 ```
 
-Override the base version or mise version via build args:
+The chart installs **no toolchains** — nothing is pinned until you say so. Pin them, then roll:
 
 ```bash
-docker build \
-  -f Dockerfile \
-  --build-arg ZEROCLAW_VERSION=0.8.5 \
-  --build-arg MISE_VERSION=v2026.9.3 \
-  -t nilchela:dev \
-  .
+helm upgrade nilchela charts/nilchela \
+  --set-file 'app-template.configMaps.config.data.mise\.toml=./mise.toml'
 ```
 
-### 2. Emulate the pod locally
+Use the release name `nilchela` and you get StatefulSet `nilchela` with PVCs `nilchela-tools`, `nilchela-cache`, and `nilchela-data`. Requires Kubernetes `>= 1.28` and Helm 3.x.
 
-The pod model has three volumes (`/tools`, `/cache`, `/config`) and a non-root user. Emulate it locally to catch the permission model before it hits the cluster.
+Full values reference, naming rules, and the reasoning behind the no-`fsGroup` ownership model: [`charts/nilchela/README.md`](charts/nilchela/README.md). Your cluster's specifics — namespace, storage classes, resources — stay in your own values file or infra repo; the chart only wants values.
 
-Start from the pinned example and fill in real versions:
+> The chart is not published to an OCI registry yet, so `git clone` is the install path. Until then, pin to a commit or tag if you're wiring it into a GitOps repo.
+
+### Docker
+
+Build it:
 
 ```bash
-cp mise.toml.example mise.toml   # then replace every <version>
+docker build -f Dockerfile -t nilchela:dev .
 ```
 
-Then:
+Emulate the pod locally before you put it in a cluster — the pod's ownership model is the part that fails quietly:
 
 ```bash
-# Volumes
 docker volume create zc-tools
 docker volume create zc-cache
-
-# Emulate pod ownership — chown the cache so the non-root agent can write it
-docker run --rm -v zc-cache:/cache busybox chown -R 65534:65534 /cache
-
-# Stage mise.toml (substitute for the ConfigMap)
-mkdir -p /tmp/zc-pod/config && cp mise.toml /tmp/zc-pod/config/
-
-# "initContainer" — install pinned toolchains into /tools
-docker run --rm \
-  -e MISE_DATA_DIR=/tools \
-  -e MISE_GLOBAL_CONFIG_FILE=/config/mise.toml \
-  -e MISE_TRUSTED_CONFIG_PATHS=/config \
-  -e MISE_CACHE_DIR=/cache/mise \
-  --entrypoint mise \
-  -v zc-tools:/tools -v zc-cache:/cache -v /tmp/zc-pod/config:/config \
-  nilchela:dev install
-
-# "main container" — verify tools resolve through shims (read-only /tools)
-docker run --rm \
-  -e MISE_DATA_DIR=/tools \
-  -e MISE_GLOBAL_CONFIG_FILE=/config/mise.toml \
-  -e MISE_TRUSTED_CONFIG_PATHS=/config \
-  -e PATH="/tools/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-  --entrypoint /bin/bash \
-  -v zc-tools:/tools:ro -v zc-cache:/cache -v /tmp/zc-pod/config:/config:ro \
-  nilchela:dev -lc 'which go cargo node python uv gh && go version && cargo --version'
+# ...see docs/docker.md for the full three-volume emulation
 ```
 
-### 3. Deploy to Kubernetes
-
-This repo intentionally ships **only the image recipe** — your cluster's manifests (StatefulSet, PVCs, the `mise.toml` ConfigMap) belong in your own infra repo, where they can reference your namespace, storage classes, and registry.
-
-The deployment shape in summary:
-
-- **An initContainer** runs `mise install` (root) to populate a `/tools` volume from your pinned `mise.toml`.
-- **A second initContainer** `chown`s the shared `/cache` volume to `65534:65534`.
-- **The agent container** runs non-root (`65534`), mounts `/tools` read-only, and gets its toolchain env from shims + `mise.toml`'s `[env]`.
-
-> **Requirement:** provision a `zeroclaw-tools` (≈10 GB) and a bounded `zeroclaw-cache` PVC, and render your `mise.toml` into a ConfigMap mounted at `/config`. The deployment deliberately uses **no `fsGroup`** — split ownership (tools → root, cache → `65534`) is done by initContainer `chown`.
+Full detail — build args, the local pod emulation, the storage model, and how `mise.toml` splits across the image and the ConfigMap: **[docs/docker.md](docs/docker.md)**.
 
 ---
 
 ## Configuration
 
-### `mise.toml` — the single source of truth
+`mise.toml` is the single source of truth: `[tools]` pins exact versions, `[env]` carries toolchain runtime variables. Both live in the ConfigMap the chart mounts at `/config/mise.toml`, which keeps the image decoupled from the toolchain set — add a tool there and no image change is needed.
 
-All tool versions and runtime env live in a `mise.toml` (rendered into a ConfigMap at deploy time; use [`mise.toml.example`](mise.toml.example) as your starting point). Key sections:
+Start from [`mise.toml.example`](mise.toml.example), and read [`docs/docker.md` → Configuration](docs/docker.md#configuration) for why `mise`'s own bootstrap variables live in the Dockerfile instead.
 
-- **`[tools]`** — exact-pinned tool versions. Bump one, and only the delta downloads on next start.
-- **`[env]`** — toolchain runtime vars (build-cache locations). Kept here — **not** in the Dockerfile — so the image stays decoupled from the toolchain set.
-
-> **Why this split?** `mise` reads its own bootstrap env (`MISE_DATA_DIR`, `MISE_GLOBAL_CONFIG_FILE`, etc.) at process start, before it can read `mise.toml` — so those live in the Dockerfile as `ENV`. Toolchain runtime env (`CARGO_HOME`, `GOMODCACHE`, …) is surfaced via `mise env`/shims and lives in `[env]`. The cache-redirect entries are deliberate policy (keep caches off `/zeroclaw-data`), not boilerplate — `mise` can't infer them.
-
-### Generating the environment dynamically
-
-Rather than hand-enumerating env vars, mise can emit the full environment it knows (PATH + `[env]` + tool/plugin-set vars) in one shot:
-
-```bash
-eval "$(mise env -s bash)"       # sourceable shell form
-mise env --dotenv > .env         # dotenv form
-mise env --json                  # json form
-```
-
-In the nilchela container this is not required — shims already surface `[env]` to child processes, and `PATH` is set in the image — but it's the lever if you want to source everything dynamically instead of relying on the baked `PATH`.
-
-### Storage model
-
-| Path | Purpose | Ownership | Lifecycle |
-|---|---|---|---|
-| `/tools` | installed toolchains | root (RO to agent) | durable, shared |
-| `/cache` | build caches (cargo/go/npm/uv) | 65534 | disposable |
-| `/config` | `mise.toml` (ConfigMap) | — | GitOps-tracked |
-| `/zeroclaw-data` | repos/workspaces/notes | 65534 | durable |
-
-Build caches are redirected off the durable data volume precisely so it doesn't balloon with disposable registries.
+> Bump a tool by editing `mise.toml` and rolling the pod. The image does not rebuild, and only the delta downloads on next start.
 
 ---
 
 ## Publishing
 
-The image is published to **GitHub Container Registry** (`ghcr.io/infiniteprimates/nilchela`) via [`.github/workflows/build-publish.yaml`](.github/workflows/build-publish.yaml):
+The image is published to **GitHub Container Registry** (`ghcr.io/infiniteprimates/nilchela`) **on `v*` git tags only**, multi-arch, as `<semver>` / `<major>.<minor>` / `sha-<commit>`. No `latest`. Pull requests build but never push.
 
-- **Auto-created** — GHCR creates the package on first push. It defaults to **private**; set its visibility to "public" in the GHCR package settings to publish it.
-- **Multi-arch** — native `linux/amd64` + `linux/arm64` via buildx.
-- **Tags** — semver tags (`v*`), and SHA; `latest` on the default branch.
+GHCR creates the package on first push and defaults it to **private** — set its visibility to public in the package settings, or nobody outside the org can pull it.
 
-To publish, push to `main` or push a `v*` tag. No registry secret is needed — the workflow's `permissions: packages: write` grants what `GITHUB_TOKEN` requires.
-
-> For a *different* registry (self-hosted Harbor, Docker Hub, etc.), swap the `registry`/`username`/`password` in the login step and add its credentials as a secret.
+Push a `v*` tag to publish; pushing to `main` publishes nothing. Registry details and how to point the workflow at a different registry: [`docs/docker.md` → Publishing](docs/docker.md#publishing).
 
 ---
 
@@ -192,6 +124,8 @@ PRs welcome. Keep the two design invariants intact:
 1. **Thin image** — no toolchains baked in; they install at runtime via `mise`.
 2. **Non-root** — always return to `USER 65534` after any root-only install steps.
 
+If you touch the Helm chart, keep its third: **the agent never writes `/tools`**. [`charts/nilchela/tests/chart_contract.py`](charts/nilchela/tests/chart_contract.py) enforces it.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. The code of conduct is in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and the security policy in [SECURITY.md](SECURITY.md).
 
-The key design decisions (the `[tools]` vs `[env]` split, storage tiers, the no-`fsGroup` ownership model) are explained inline in [`Dockerfile`](Dockerfile) and this document.
+The key design decisions (the `[tools]` vs `[env]` split, storage tiers, the no-`fsGroup` ownership model) are explained inline in [`Dockerfile`](Dockerfile), [`docs/docker.md`](docs/docker.md), and the chart's own README.
