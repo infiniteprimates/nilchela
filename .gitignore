@@ -15,3 +15,8 @@ mise.local.toml
 # Build/env
 .env
 .env.*
+
+# Helm chart dependency output. `helm dependency build` resolves app-template
+# (and its common library) into charts/nilchela/charts/; those archives are
+# reproducible from the pinned version in Chart.yaml, so they are not committed.
+charts/nilchela/charts/

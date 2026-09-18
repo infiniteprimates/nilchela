@@ -1,0 +1,38 @@
+apiVersion: v2
+name: nilchela
+description: |
+  Deploy nilchela — a thin, opinionated ZeroClaw dev image that installs
+  mise-managed toolchains at runtime instead of baking them into the image.
+type: application
+
+# Chart version — bump on any chart change (SemVer).
+version: 0.1.0
+
+# Application version — the nilchela IMAGE version this chart deploys by
+# default. Must match `app-template.controllers.main.containers.main.image.tag`
+# in values.yaml; tests/chart_contract.py fails the build if the two drift.
+appVersion: "0.0.3"
+
+# app-template (and the common library it wraps) require Kubernetes >= 1.28.
+# Declared here so Helm refuses early with a clear message rather than failing
+# deep inside the subchart.
+kubeVersion: ">=1.28.0-0"
+
+home: https://github.com/infiniteprimates/nilchela
+sources:
+  - https://github.com/infiniteprimates/nilchela
+
+maintainers:
+  - name: rawlink
+    url: https://github.com/rawlink
+
+# This chart is a thin wrapper: it contains no Kubernetes templates of its own
+# beyond NOTES.txt, and delegates every resource to the bjw-s app-template
+# chart. See README.md ("Why this chart is a wrapper").
+dependencies:
+  - name: app-template
+    # Pinned exactly, not a range: the app-template values schema is versioned,
+    # and a silent minor bump can change rendering. Upgrade deliberately
+    # (and read the upgrade notes: .../docs/app-template/upgrades/).
+    version: 5.1.0
+    repository: https://bjw-s-labs.github.io/helm-charts
