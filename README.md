@@ -60,6 +60,8 @@ docker build \
   .
 ```
 
+Run this from the repository root — the trailing `.` is the build context.
+
 Override the base version or mise version via build args:
 
 ```bash
