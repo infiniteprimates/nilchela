@@ -23,6 +23,8 @@ But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python
 | Non-root posture | often broken | preserved (`USER 65534`) |
 | Toolchain set | fixed at build | configurable per-deploy |
 
+Because the toolchains live in a volume rather than the image, rebuilding the image leaves them untouched — and wiping the volume to reclaim space does not require a rebuild.
+
 ---
 
 ## How it works
