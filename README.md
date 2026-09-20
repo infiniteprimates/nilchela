@@ -177,6 +177,8 @@ To publish, push to `main` or push a `v*` tag. No registry secret is needed — 
 
 > For a *different* registry (self-hosted Harbor, Docker Hub, etc.), swap the `registry`/`username`/`password` in the login step and add its credentials as a secret.
 
+> **Operational note:** pin deploys to an explicit image tag or digest. `latest` advances on every push to `main`, so a pinned tag is what makes a rollback reproducible.
+
 ---
 
 ## License
