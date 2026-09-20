@@ -150,7 +150,7 @@ mise env --dotenv > .env         # dotenv form
 mise env --json                  # json form
 ```
 
-In the nilchela container this is not required — shims already surface `[env]` to child processes, and `PATH` is set in the image — but it's the lever if you want to source everything dynamically instead of relying on the baked `PATH`.
+In the nilchela container this is not required — shims already surface `[env]` to child processes, and the entrypoint sets `PATH` via `mise env` — but it's the lever if you want to source everything dynamically instead of relying on the entrypoint-provided `PATH`.
 
 ### Storage model
 
