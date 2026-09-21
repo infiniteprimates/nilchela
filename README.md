@@ -31,6 +31,7 @@ But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python
 2. **Pin tools in `mise.toml`** — exact versions for `go`, `node`, `python`, `rust`, `uv`, `gh`, and runtime env (build-cache locations). See [`mise.toml.example`](mise.toml.example).
 3. **Install at start** — an initContainer runs `mise install` into a mounted `/tools` volume (root-owned). `mise` is address-and-skip: a warm volume starts near-instantly, offline-quiet.
 4. **Run non-root** — the agent container mounts `/tools` read-only and invokes tools via shims on `PATH`.
+5. **Enter through `mise exec`** — the image overrides the base `ENTRYPOINT`, so the daemon starts as `mise exec -- /usr/local/bin/zeroclaw daemon` and inherits the full mise environment: `PATH` assembled from the shims and the active tool directories, plus every `[env]` variable from `mise.toml`. There is deliberately **no baked `PATH`** and no wrapper script — `mise exec` is the primitive. If you replace the entrypoint, you own this: source `mise env` yourself, or the child process sees no toolchain.
 
 ---
 
