@@ -41,8 +41,6 @@ But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python
 
 **Runtime toolchains (via `mise`, configurable):** nothing is baked in. You pin the set you want in your `mise.toml` (Go, Node, Python, Rust with `rustfmt` + `clippy`, `uv`, the GitHub CLI, …) — add/remove tools there without touching the image.
 
-**Deliberately omitted:** `libssl-dev` (native OpenSSL headers) and `ripgrep` — portable-lean defaults. Add them only when a specific need justifies the native dependency.
-
 ---
 
 ## Getting Started
