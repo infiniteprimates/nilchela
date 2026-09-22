@@ -2,7 +2,7 @@
 
 > **"the empty claw, equipped."**
 
-A thin, opinionated dev image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base, plus the `mise` version manager and a clean pattern for provisioning language toolchains *at runtime* instead of baking them into the image.
+A thin, development enabled image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official ZeroClaw debian image, with build-essentials, the `mise` version manager, and a clean pattern for provisioning language toolchains *at runtime* instead of baking them into the image.
 
 Built with ❤️ by [rawlink](https://github.com/rawlink) on the official [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) base image (MIT OR Apache-2.0). nilchela is an independent community project and is not affiliated with or endorsed by ZeroClaw Labs.
 
