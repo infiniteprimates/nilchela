@@ -53,14 +53,14 @@ But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python
 
 ### 1. Build the image
 
+Run the following from the repository root — the trailing `.` is the build context.
+
 ```bash
 docker build \
   -f Dockerfile \
   -t nilchela:dev \
   .
 ```
-
-Run this from the repository root — the trailing `.` is the build context.
 
 Override the base version or mise version via build args:
 
