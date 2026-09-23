@@ -8,7 +8,7 @@
 
 ---
 
-A thin, development-enabled image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base plus a clean pattern for provisioning language toolchains *at runtime* instead of baking them in, built on `build-essential` and the `mise` version manager.
+A thin, development-enabled image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base plus a clean pattern for provisioning language toolchains *at runtime* instead of baking them in, built on `build-essential` and the [`mise`](https://mise.jdx.dev) version manager.
 
 Built with ❤️ by [rawlink](https://github.com/rawlink) on the official [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) base image (MIT OR Apache-2.0). nilchela is an independent community project and is not affiliated with or endorsed by ZeroClaw Labs.
 
