@@ -58,6 +58,8 @@ But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python
 
 ### 1. Build the image
 
+Run the following from the repository root — the trailing `.` is the build context.
+
 ```bash
 docker build \
   -f Dockerfile \
