@@ -169,16 +169,6 @@ Build caches are redirected off the durable data volume precisely so it doesn't 
 
 The image is published to **GitHub Container Registry** (`ghcr.io/infiniteprimates/nilchela`) via [`.github/workflows/build-publish.yaml`](.github/workflows/build-publish.yaml):
 
-- **Auto-created** — GHCR creates the package on first push. It defaults to **private**; set its visibility to "public" in the GHCR package settings to publish it.
-- **Multi-arch** — native `linux/amd64` + `linux/arm64` via buildx.
-- **Tags** — semver tags (`v*`), and SHA; `latest` on the default branch.
-
-To publish, push to `main` or push a `v*` tag. No registry secret is needed — the workflow's `permissions: packages: write` grants what `GITHUB_TOKEN` requires.
-
-> For a *different* registry (self-hosted Harbor, Docker Hub, etc.), swap the `registry`/`username`/`password` in the login step and add its credentials as a secret.
-
-> **Operational note:** pin deploys to an explicit image tag or digest. `latest` advances on every push to `main`, so a pinned tag is what makes a rollback reproducible.
-
 ---
 
 ## License
