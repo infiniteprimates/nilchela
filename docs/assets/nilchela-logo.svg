@@ -1,19 +1,41 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg
-   viewBox="0 0 256.99973 224.00938"
-   width="256.99973"
+   viewBox="0 0 336.99966 224.00938"
+   width="336.99966"
    height="224.00938"
    version="1.1"
    id="svg16"
+   sodipodi:docname="nilchela-logo.svg"
+   inkscape:version="1.4.3 (0d15f75042, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview16"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="3.22"
+     inkscape:cx="324.68944"
+     inkscape:cy="123.29193"
+     inkscape:window-width="1473"
+     inkscape:window-height="891"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg16" />
   <defs
      id="defs1">
     <filter
        id="shadow"
-       x="-0.035416032"
+       x="-0.026562024"
        y="-0.016100548"
-       width="1.0708321"
+       width="1.053124"
        height="1.0320931">
       <feDropShadow
          dx="0"
@@ -58,9 +80,9 @@
          stroke-linejoin="round"
          id="path3" />
     </g>
-    <!-- MAIN NILCHELA CLAW (Centered in the expanded viewBox) -->
+    <!-- MAIN NILCHELA CLAW (Centered in the expanded 360px viewBox) -->
     <g
-       transform="translate(50)"
+       transform="translate(90)"
        id="g12">
       <!-- 1. RIGHT CLAW (Fixed Pincer - Background) -->
       <path
@@ -160,7 +182,7 @@
        id="g15">
       <!-- Thick Outline -->
       <path
-         d="m 235,60 25,40 -25,40"
+         d="m 315,60 25,40 -25,40"
          fill="none"
          stroke="#301510"
          stroke-width="17"
@@ -169,7 +191,7 @@
          id="path13" />
       <!-- Colored Inner -->
       <path
-         d="m 235,60 25,40 -25,40"
+         d="m 315,60 25,40 -25,40"
          fill="none"
          stroke="#ff5230"
          stroke-width="10"
@@ -178,7 +200,7 @@
          id="path14" />
       <!-- Inner Highlight -->
       <path
-         d="m 238,64 18,36 -18,36"
+         d="m 318,64 18,36 -18,36"
          fill="none"
          stroke="#ffc8b4"
          stroke-width="3"
