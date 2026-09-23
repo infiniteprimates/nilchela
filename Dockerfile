@@ -9,7 +9,7 @@
 # build time).
 #
 # This image carries three things:
-#   1. OS-level tooling (apt) layered on the base's bash/curl/git/vim-tiny.
+#   1. OS-level tooling (apt) layered on the base's bash/curl/git.
 #   2. The `mise` CLI — the version manager that installs dev toolchains.
 #   3. An ENTRYPOINT that runs the base daemon under `mise exec`, so the process
 #      inherits the toolchain env + [env] vars (see the ENTRYPOINT note below).
@@ -35,7 +35,7 @@ ARG MISE_VERSION=v2026.9.3
 
 USER root
 
-# ---- OS-level tooling (bash/curl/git/vim-tiny already in base) -------------
+# ---- OS-level tooling (bash/curl/git already in base) ----------------------
 # build-essential + pkg-config = native-compile baseline. Deliberately NOT
 # installing libssl-dev (OpenSSL headers) — portability-lean default.
 # unzip + xz-utils = needed by mise to extract toolchain archives at install.
