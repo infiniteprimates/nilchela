@@ -2,7 +2,7 @@
 
 > **"the empty claw, equipped."**
 
-A thin, opinionated dev image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base, plus the `mise` version manager and a clean pattern for provisioning language toolchains *at runtime* instead of baking them into the image.
+A thin, opinionated dev image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base, plus the [`mise`](https://mise.jdx.dev) version manager and a clean pattern for provisioning language toolchains *at runtime* instead of baking them into the image.
 
 Built with ❤️ by [rawlink](https://github.com/rawlink) on the official [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) base image (MIT OR Apache-2.0). nilchela is an independent community project and is not affiliated with or endorsed by ZeroClaw Labs.
 
@@ -14,7 +14,7 @@ The official ZeroClaw image (`ghcr.io/zeroclaw-labs/zeroclaw`) is deliberately m
 
 But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python` — has no toolchain. Baking those in creates a ~3 GB image that rebuilds on every version bump and pulls slowly.
 
-**nilchela decouples the two.** It layers [`mise`](https://mise.jdx.dev) + OS build tools on the base, then installs pinned toolchains into a mounted volume at container start. The result:
+**nilchela decouples the two.** It layers `mise` + OS build tools on the base, then installs pinned toolchains into a mounted volume at container start. The result:
 
 | | Baked-in toolchains | nilchela |
 |---|---|---|
