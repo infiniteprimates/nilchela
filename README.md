@@ -1,6 +1,12 @@
-# nilchela
+<p align="center">
+  <img src="docs/assets/nilchela-logo.svg" width="300" alt="A cartoon claw gripping a hammer between two angle brackets.">
+</p>
 
-> **"the empty claw, equipped."**
+<h1 align="center">nilchela</h1>
+
+<p align="center"><strong>"the empty claw, equipped."</strong></p>
+
+---
 
 A thin, development-enabled image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base plus a clean pattern for provisioning language toolchains *at runtime* instead of baking them in, built on `build-essential` and the `mise` version manager.
 
