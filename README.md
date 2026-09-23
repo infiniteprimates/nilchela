@@ -16,7 +16,7 @@ Built with ❤️ by [rawlink](https://github.com/rawlink) on the official [Zero
 
 ## Why this exists
 
-The official ZeroClaw image (`ghcr.io/zeroclaw-labs/zeroclaw`) is deliberately minimal — a lean agent host with `bash`, `git`, `curl`, `vim-tiny`, and nothing else. That's the right call for its job (small attack surface, optional distroless variant).
+The official ZeroClaw image (`ghcr.io/zeroclaw-labs/zeroclaw`) is deliberately minimal — a lean agent host with `bash`, `git`, `curl`, and nothing else. That's the right call for its job (small attack surface).
 
 But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python` — has no toolchain. Baking those in creates a ~3 GB image that rebuilds on every version bump and pulls slowly.
 
@@ -43,7 +43,7 @@ But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python
 
 ## What's included
 
-**OS-level (apt):** `build-essential`, `pkg-config`, `ca-certificates`, `curl`, `jq`, `git-lfs`, `openssh-client`, `unzip`, `xz-utils` — layered on the base's `bash`/`git`/`curl`/`vim-tiny`.
+**OS-level (apt):** `build-essential`, `pkg-config`, `ca-certificates`, `curl`, `jq`, `git-lfs`, `openssh-client`, `unzip`, `xz-utils` — layered on the base's `bash`/`git`/`curl`.
 
 **Runtime toolchains (via `mise`, configurable):** nothing is baked in. You pin the set you want in your `mise.toml` (Go, Node, Python, Rust with `rustfmt` + `clippy`, `uv`, the GitHub CLI, …) — add/remove tools there without touching the image.
 
