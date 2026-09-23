@@ -1,6 +1,14 @@
-# nilchela
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 20px; font-family: sans-serif;">
+  <div style="margin-bottom: 20px;">
+    <img src="docs/assets/nilchela-logo.svg" width="300" alt="A cartoon claw holding a hammer that looks like a slashed zero. There are angle brackets either side of the claw and hammer.">
+  </div>
+  <div style="display: flex; flex-direction: column; align-items: center;">
+    <span style="font-size: 42px; font-weight: 500; color: #ffffff; letter-spacing: 1px; line-height: 1.2;">nilchela</span>
+    <span style="font-size: 16px; font-weight: 400; color: #a0a0a0; text-transform: uppercase; letter-spacing: 3px; margin-top: 12px;">the empty claw equipped</span>
+  </div>
+</div>
 
-> **"the empty claw, equipped."**
+---
 
 A thin, development-enabled image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base plus a clean pattern for provisioning language toolchains *at runtime* instead of baking them in, built on `build-essential` and the `mise` version manager.
 

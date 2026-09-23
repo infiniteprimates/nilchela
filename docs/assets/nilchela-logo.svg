@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 256.99973 224.00938"
+   width="256.99973"
+   height="224.00938"
+   version="1.1"
+   id="svg16"
+   sodipodi:docname="nilchela-logo.svg"
+   inkscape:version="1.4.3 (0d15f75042, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview16"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="3.22"
+     inkscape:cx="128.41615"
+     inkscape:cy="122.98137"
+     inkscape:window-width="1473"
+     inkscape:window-height="891"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg16" />
+  <defs
+     id="defs1">
+    <filter
+       id="shadow"
+       x="-0.035416032"
+       y="-0.016100548"
+       width="1.0708321"
+       height="1.0320931">
+      <feDropShadow
+         dx="0"
+         dy="6"
+         stdDeviation="4"
+         flood-color="#1A0A05"
+         flood-opacity="0.3" />
+    </filter>
+  </defs>
+  <g
+     filter="url(#shadow)"
+     id="g16"
+     transform="translate(-11.500152,23.07526)">
+    <!-- LEFT ANGLE BRACKET "<" -->
+    <g
+       id="g3">
+      <!-- Thick Outline -->
+      <path
+         d="m 45,60 -25,40 25,40"
+         fill="none"
+         stroke="#301510"
+         stroke-width="17"
+         stroke-linecap="round"
+         stroke-linejoin="round"
+         id="path1" />
+      <!-- Colored Inner -->
+      <path
+         d="m 45,60 -25,40 25,40"
+         fill="none"
+         stroke="#d83c20"
+         stroke-width="10"
+         stroke-linecap="round"
+         stroke-linejoin="round"
+         id="path2" />
+      <!-- Inner Highlight -->
+      <path
+         d="m 42,64 -18,36 18,36"
+         fill="none"
+         stroke="#ff7a59"
+         stroke-width="3"
+         stroke-linecap="round"
+         stroke-linejoin="round"
+         id="path3" />
+    </g>
+    <!-- MAIN NILCHELA CLAW (Centered in the expanded viewBox) -->
+    <g
+       transform="translate(50)"
+       id="g12">
+      <!-- 1. RIGHT CLAW (Fixed Pincer - Background) -->
+      <path
+         d="m 90,176 c 40,14 70,-16 70,-76 0,-60 -30,-80 -70,-80 -15,0 -20,5 -20,15 10,10 25,10 30,15 10,5 15,15 15,30 l -20,10 20,10 -20,10 20,10 c 0,20 -5,25 -25,24 z"
+         fill="#ff5230"
+         stroke="#301510"
+         stroke-width="7"
+         stroke-linejoin="round"
+         id="path4" />
+      <path
+         d="m 95,29 c 40,0 56,21 56,66"
+         stroke="#ffc8b4"
+         stroke-width="5"
+         stroke-linecap="round"
+         fill="none"
+         id="path5" />
+      <!-- 2. HAMMER (The Slash) -->
+      <g
+         id="hammer"
+         transform="rotate(45,90,98)">
+        <rect
+           x="79"
+           y="-20"
+           width="22"
+           height="250"
+           rx="4"
+           fill="#a0522d"
+           stroke="#301510"
+           stroke-width="7"
+           id="rect5" />
+        <path
+           d="M 84,-5 V 220 M 94,10 v 205"
+           stroke="#7a3e22"
+           stroke-width="2"
+           stroke-linecap="round"
+           id="path6" />
+        <path
+           d="M 75,-25 H 50 c -5,0 -10,5 -10,15 0,10 5,15 10,15 h 25 30 c 10,0 25,10 40,20 5,-20 -10,-50 -40,-50 z"
+           fill="#b0bec5"
+           stroke="#301510"
+           stroke-width="7"
+           stroke-linejoin="round"
+           id="path7" />
+        <path
+           d="m 75,-17 h 30"
+           stroke="#cfd8dc"
+           stroke-width="4"
+           stroke-linecap="round"
+           id="path8" />
+        <path
+           d="m 48,-10 h 4"
+           stroke="#cfd8dc"
+           stroke-width="4"
+           stroke-linecap="round"
+           id="path9" />
+      </g>
+      <!-- 3. LEFT CLAW (Movable Pincer - Foreground) -->
+      <path
+         d="M 90,176 C 50,160 20,130 20,100 20,50 50,25 80,25 75,35 72,40 70,50 65,55 65,70 65,85 l 20,10 -20,10 c 0,20 3,35 25,39 z"
+         fill="#d83c20"
+         stroke="#301510"
+         stroke-width="7"
+         stroke-linejoin="round"
+         id="path10" />
+      <path
+         d="M 72,35 C 40,38 29,60 29,95"
+         stroke="#ff7a59"
+         stroke-width="5"
+         stroke-linecap="round"
+         fill="none"
+         id="path11" />
+      <!-- 4. HINGE JOINT -->
+      <circle
+         cx="90"
+         cy="160"
+         r="14"
+         fill="#ff5230"
+         stroke="#301510"
+         stroke-width="7"
+         id="circle11" />
+      <circle
+         cx="90"
+         cy="160"
+         r="4"
+         fill="#301510"
+         id="circle12" />
+      <path
+         d="m 85,152 a 8,8 0 0 1 10,0"
+         stroke="#ffc8b4"
+         stroke-width="3"
+         stroke-linecap="round"
+         fill="none"
+         id="path12" />
+    </g>
+    <!-- RIGHT ANGLE BRACKET ">" -->
+    <g
+       id="g15">
+      <!-- Thick Outline -->
+      <path
+         d="m 235,60 25,40 -25,40"
+         fill="none"
+         stroke="#301510"
+         stroke-width="17"
+         stroke-linecap="round"
+         stroke-linejoin="round"
+         id="path13" />
+      <!-- Colored Inner -->
+      <path
+         d="m 235,60 25,40 -25,40"
+         fill="none"
+         stroke="#ff5230"
+         stroke-width="10"
+         stroke-linecap="round"
+         stroke-linejoin="round"
+         id="path14" />
+      <!-- Inner Highlight -->
+      <path
+         d="m 238,64 18,36 -18,36"
+         fill="none"
+         stroke="#ffc8b4"
+         stroke-width="3"
+         stroke-linecap="round"
+         stroke-linejoin="round"
+         id="path15" />
+    </g>
+  </g>
+</svg>
