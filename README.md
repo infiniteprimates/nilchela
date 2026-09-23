@@ -24,10 +24,12 @@ But an agent that needs to *build* things — run `cargo`, `go`, `node`, `python
 
 | | Baked-in toolchains | nilchela |
 |---|---|---|
-| Image size | ~3 GB | ~300 MB |
+| Image size | ~3 GB | ~700 MB |
 | Version bump | full rebuild + re-pull | edit `mise.toml` + roll |
 | Non-root posture | often broken | preserved (`USER 65534`) |
 | Toolchain set | fixed at build | configurable per-deploy |
+
+Because the toolchains live in a volume rather than the image, rebuilding the image leaves them untouched — and wiping the volume to reclaim space does not require a rebuild.
 
 ---
 
