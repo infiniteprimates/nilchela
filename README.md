@@ -197,4 +197,4 @@ The key design decisions (the `[tools]` vs `[env]` split, storage tiers, the no-
 
 ## Testing
 
-QA is done against a locally built image (`./hack/build` + `./hack/run`) before any deploy. Verify the end-state, not the steps: the running container must land on the unprivileged `65534` uid and resolve its installed tools through the `mise` shims.
+QA is done against a locally built image before any deploy: build with `docker build -f Dockerfile -t nilchela:dev .`, then run the local-emulation `docker run` sequence above (config staging, cache ownership, init/tool install, main container). Verify the end-state, not the steps: the running container must land on the unprivileged `65534` uid and resolve its installed tools through the `mise` shims.
