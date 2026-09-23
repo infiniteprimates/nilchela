@@ -167,7 +167,9 @@ Build caches are redirected off the durable data volume precisely so it doesn't 
 
 ## Publishing
 
-The image is published to **GitHub Container Registry** (`ghcr.io/infiniteprimates/nilchela`) via [`.github/workflows/build-publish.yaml`](.github/workflows/build-publish.yaml):
+The image is published to **GitHub Container Registry** (`ghcr.io/infiniteprimates/nilchela`) via [`.github/workflows/build-publish.yaml`](.github/workflows/build-publish.yaml).
+
+Both `linux/amd64` and `linux/arm64` images are built via buildx.
 
 ---
 
