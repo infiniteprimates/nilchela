@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/nilchela-logo.svg" width="300" alt="A cartoon claw gripping a hammer between two angle brackets.">
+  <img src="docs/assets/nilchela-logo.svg" width="360" alt="A cartoon claw gripping a hammer between two angle brackets.">
 </p>
 
 <h1 align="center">nilchela</h1>
