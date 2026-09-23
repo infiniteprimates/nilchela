@@ -8,7 +8,7 @@
 
 ---
 
-A thin, development-enabled image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base plus a clean pattern for provisioning language toolchains *at runtime* instead of baking them in, built on `build-essential` and the `mise` version manager.
+A thin, development-enabled image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base plus a clean pattern for provisioning language toolchains *at runtime* instead of baking them in, built on `build-essential` and the [`mise`](https://mise.jdx.dev) version manager.
 
 Built with ❤️ by [rawlink](https://github.com/rawlink) on the official [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) base image (MIT OR Apache-2.0). nilchela is an independent community project and is not affiliated with or endorsed by ZeroClaw Labs.
 
@@ -157,7 +157,7 @@ mise env --dotenv > .env         # dotenv form
 mise env --json                  # json form
 ```
 
-In the nilchela container this is not required — shims already surface `[env]` to child processes, and `PATH` is set in the image — but it's the lever if you want to source everything dynamically instead of relying on the baked `PATH`.
+In the nilchela container this is not required — shims already surface `[env]` to child processes, and the entrypoint sets `PATH` via `mise env` — but it's the mechanism if you want to source everything dynamically instead of relying on the entrypoint-provided `PATH` and configured `[env]`.
 
 ### Storage model
 
@@ -174,15 +174,15 @@ Build caches are redirected off the durable data volume precisely so it doesn't 
 
 ## Publishing
 
-The image is published to **GitHub Container Registry** (`ghcr.io/infiniteprimates/nilchela`) via [`.github/workflows/build-publish.yaml`](.github/workflows/build-publish.yaml):
+The image is published to **GitHub Container Registry** (`ghcr.io/infiniteprimates/nilchela`) via [`.github/workflows/build-publish.yaml`](.github/workflows/build-publish.yaml).
 
-- **Auto-created** — GHCR creates the package on first push. It defaults to **private**; set its visibility to "public" in the GHCR package settings to publish it.
-- **Multi-arch** — native `linux/amd64` + `linux/arm64` via buildx.
-- **Tags** — semver tags (`v*`), and SHA; `latest` on the default branch.
+Both `linux/amd64` and `linux/arm64` images are built via buildx.
 
-To publish, push to `main` or push a `v*` tag. No registry secret is needed — the workflow's `permissions: packages: write` grants what `GITHUB_TOKEN` requires.
+---
 
-> For a *different* registry (self-hosted Harbor, Docker Hub, etc.), swap the `registry`/`username`/`password` in the login step and add its credentials as a secret.
+## Testing
+
+QA is done against a locally built image before any deploy: build with `docker build -f Dockerfile -t nilchela:dev .`, then run the local-emulation `docker run` sequence above (config staging, cache ownership, init/tool install, main container). Verify the end-state, not the steps: the running container must land on the unprivileged `65534` uid and resolve its installed tools through the `mise` shims.
 
 ---
 
