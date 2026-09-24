@@ -1,0 +1,47 @@
+nilchela {{ .Chart.AppVersion }} -> release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Installed with NO toolchains, deliberately: the chart ships an empty [tools]
+table, because which tools an agent needs is your policy, not the chart's. The
+pod runs either way — it just has nothing on PATH yet.
+
+Pin what you want:
+
+  # write a mise.toml with a [tools] section (see mise.toml.example), then:
+  helm upgrade {{ .Release.Name }} <chart> \
+    --set-file 'app-template.configMaps.config.data.mise\.toml=./mise.toml'
+
+  # or override the whole ConfigMap key by key:
+  helm upgrade {{ .Release.Name }} <chart> \
+    --set 'app-template.configMaps.config.data.mise\.toml=...'
+
+The backslashes are required — `mise.toml` is one ConfigMap key, and the dot in
+it is not a path separator.
+
+First start installs the pinned set into /tools, which can take a few minutes on
+a cold volume and is near-instant afterwards:
+
+  kubectl -n {{ .Release.Namespace }} get pods -w
+  kubectl -n {{ .Release.Namespace }} logs -f <pod> -c install-tools
+
+Bumping a tool is a mise.toml edit and a roll — the image never rebuilds.
+
+The ZeroClaw gateway is fronted by a ClusterIP Service — cluster-internal only,
+no Ingress and no TLS. With the documented release name the Service is
+`{{ .Release.Name }}`:
+
+  kubectl -n {{ .Release.Namespace }} get svc {{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }} 42617:42617
+
+(Any other release name yields `<release>-nilchela`; `kubectl get svc` is the
+authority.)
+
+/health IS UNAUTHENTICATED. It reports pairing state (`paired`,
+`require_pairing`) and a runtime health snapshot. That is acceptable from inside
+the cluster, which is why the Service is ClusterIP and not LoadBalancer or
+Ingress — if you add one, terminate authentication in front of it.
+
+No probes, by design. The pod reports Ready the moment the container is Running,
+so "install succeeded" and "the agent works" are two different facts, and a
+wedged agent is not restarted automatically. Watch the logs:
+
+  kubectl -n {{ .Release.Namespace }} logs -f <pod> -c main

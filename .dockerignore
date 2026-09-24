@@ -9,4 +9,9 @@
 README.md
 LICENSE*
 *.md
-docs/assets
+
+# Helm chart, docs, and their assets — the image build needs none of them, and a
+# resolved chart carries a dependency archive that has no business in the build
+# context.
+charts/
+docs/

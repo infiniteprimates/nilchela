@@ -1,0 +1,347 @@
+# =============================================================================
+# nilchela — Helm values
+#
+# Two key spaces, one file:
+#
+#   global.nameOverride   ours   — makes the release render as `nilchela`
+#   app-template.*        theirs — passed verbatim to the bjw-s `app-template`
+#                                  chart, and uses ITS schema:
+#   https://bjw-s-labs.github.io/helm-charts/docs/app-template/reference/
+#
+# There is no nilchela-specific schema. If you know app-template, you know this
+# chart — the defaults below just encode nilchela's documented pod model (see
+# docs/docker.md > "Deployment shape", and charts/nilchela/README.md).
+# =============================================================================
+
+global:
+  # app-template names every resource from global.nameOverride, falling back to
+  # the chart name — which, as a subchart, would be `app-template`. Set it, or
+  # you get StatefulSet `nilchela-app-template` and PVCs to match.
+  #
+  # Naming rule (app-template's, not ours): fullname is `<release>-<nameOverride>`,
+  # or just `<release>` when the release name already contains `nilchela`. A
+  # collection with more than one item gets the item key as a name suffix, so
+  # the three PVCs below render as `<fullname>-tools` / `-cache` / `-data`.
+  # `helm template nilchela ./charts/nilchela` prints the exact names.
+  nameOverride: nilchela
+
+app-template:
+
+  # ---------------------------------------------------------------------------
+  # Controller — one StatefulSet, one replica.
+  #
+  # StatefulSet rather than Deployment because the pod owns long-lived volumes
+  # and a stable identity: nilchela is a pet, not cattle.
+  #
+  # The pod DOES accept inbound traffic: `zeroclaw daemon` supervises an HTTP
+  # gateway (dashboard + REST API) on port 42617. The `service:` block further
+  # down fronts it, from inside the cluster only.
+  # ---------------------------------------------------------------------------
+  controllers:
+    main:
+      type: statefulset
+
+      containers:
+        main:
+          # Image tag tracks Chart.yaml appVersion (tests/chart_contract.py
+          # fails the build if they drift).
+          #
+          # Published tags come from .github/workflows/build-publish.yaml, which
+          # runs on `v*` git tags and emits `<semver>`, `<major>.<minor>` and
+          # sha — the `v` is stripped, so git tag `v0.0.3` is image tag `0.0.3`.
+          image:
+            repository: ghcr.io/infiniteprimates/nilchela
+            tag: "0.0.3"
+            # Correct for an exact tag (as above). Set `Always` if you track a
+            # moving tag such as `0.0` or `sha-<commit>`.
+            pullPolicy: IfNotPresent
+
+          # -----------------------------------------------------------------
+          # Gateway bind.
+          #
+          # The chart mounts a PVC over /zeroclaw-data, which SHADOWS the
+          # image's baked /zeroclaw-data/.zeroclaw/config.toml. The daemon
+          # therefore boots from schema defaults — [gateway] host = 127.0.0.1
+          # (`zeroclaw-config/src/schema.rs`, `default_gateway_host`) — and
+          # would listen on loopback only. The Service below would then front
+          # a port nothing outside the pod can dial.
+          #
+          # These two vars are the schema-mirror override form:
+          # `ZEROCLAW_` + the dotted config path with `.` → `__`. They are
+          # applied AFTER config load and masked back out of anything the
+          # daemon saves, so they set the running bind without writing a file
+          # into the data volume and without being persisted. An unresolvable
+          # ZEROCLAW_ path is a hard startup error, so a typo fails loudly
+          # rather than silently falling back to loopback.
+          #
+          # `allow_public_bind` does not make the gateway public — the Service
+          # type does, and it is ClusterIP. It only silences the daemon's
+          # "binding to all interfaces" warning, which is expected here.
+          #
+          # Set these back to `127.0.0.1`/removed if you disable the Service:
+          # loopback plus `kubectl port-forward` is the tighter posture.
+          env:
+            ZEROCLAW_gateway__host: "0.0.0.0"
+            ZEROCLAW_gateway__allow_public_bind: "true"
+
+          # No command/args: the image's ENTRYPOINT is
+          # `mise exec -- /usr/local/bin/zeroclaw` with CMD `daemon`, so the
+          # daemon inherits the full mise environment (shims + mise.toml [env]).
+          #
+          # Non-root, and deliberately NOT via a pod-level securityContext: the
+          # init containers below must run as root, and pod-level
+          # `runAsNonRoot: true` combined with container-level `runAsUser: 0` is
+          # a hard kubelet error. Per-container is the only place the two can
+          # differ, so it is the only place they are set.
+          securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+
+          # Requests only — no limits. This is a build host: `cargo build` and
+          # `go test` spike well past any limit you would pick, and a CPU or
+          # memory limit turns a slow build into an OOMKill instead. Raise the
+          # requests to match your scheduler's expectations.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+
+      initContainers:
+        # Settles volume ownership before anything writes to the volumes.
+        #
+        # Split ownership, by design: /tools stays root-owned, while /cache and
+        # /zeroclaw-data belong to 65534 so the non-root agent can write them.
+        # This is also why the chart sets no `fsGroup`: an fsGroup would hand
+        # the agent's group write access to /tools, and the next `mise install`
+        # (or the next bulk install) runs as root — so the agent could overwrite
+        # the toolchains it is about to execute. Per-volume ownership instead.
+        #
+        # NOT recursive, on purpose: only the mount roots need fixing, and a
+        # `chown -R` over a warm cache tree is minutes of pod start-up for no
+        # benefit. Subdirectories under /cache are created by the agent (65534)
+        # and are already correct; mise's own download cache under /cache/mise
+        # is created by the installer as root and is read-only at runtime.
+        #
+        # Uses the nilchela image rather than a busybox: it is already pulled
+        # for the other containers, so this adds no image bytes to the pull.
+        fix-ownership:
+          image:
+            repository: ghcr.io/infiniteprimates/nilchela
+            tag: "0.0.3"
+            pullPolicy: IfNotPresent
+          command: ["chown"]
+          args: ["65534:65534", "/cache", "/zeroclaw-data"]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+
+        # Populates /tools from the ConfigMap-mounted mise.toml. Root, because
+        # /tools is root-owned — that split is what lets the agent container
+        # mount /tools read-only.
+        #
+        # `mise install` is address-and-skip: a warm volume starts near-instantly
+        # and offline-quiet. A cold volume downloads the pinned set.
+        #
+        # `dependsOn` also removes the render-order ambiguity between the two
+        # init containers (app-template orders them topologically, and this is
+        # the only edge), so `helm template` output is stable.
+        install-tools:
+          dependsOn: fix-ownership
+          image:
+            repository: ghcr.io/infiniteprimates/nilchela
+            tag: "0.0.3"
+            pullPolicy: IfNotPresent
+          command: ["mise"]
+          args: ["install"]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+
+  # ---------------------------------------------------------------------------
+  # Service — one ClusterIP fronting the gateway.
+  #
+  # Why there IS one: `zeroclaw daemon` supervises an HTTP gateway that serves
+  # the dashboard, the REST API and /health on 42617. There is a real inbound
+  # surface, so the chart fronts it rather than leaving every consumer to
+  # rediscover the port.
+  #
+  # Why it is ClusterIP and nothing else: reachability from inside the cluster
+  # is the useful default, and publishing beyond the cluster is a decision this
+  # chart deliberately does not make. No Ingress, no TLS, no LoadBalancer —
+  # add them under `app-template.ingress:` / `service.main.type:` if you want
+  # them. This Service must never be the thing exposed to the public internet.
+  #
+  # SECURITY — /health is UNAUTHENTICATED. It returns
+  # `{"status", "paired", "require_pairing", "runtime"}`: whether the instance
+  # is paired, whether pairing is required, and the runtime health snapshot
+  # (component registry + uptime). The dashboard and /api/* do require the
+  # gateway's own pairing/TLS posture, but /health does not — so anyone who can
+  # reach this Service can read pairing state. Inside a cluster that is
+  # acceptable and is why ClusterIP is the default; the moment you put an
+  # Ingress in front, terminate auth there before anything reaches /health.
+  # ---------------------------------------------------------------------------
+  service:
+    main:
+      controller: main
+      # ClusterIP is app-template's default; stated explicitly because it is a
+      # security decision here, not an inherited detail.
+      type: ClusterIP
+      ports:
+        http:
+          port: 42617
+          # HTTP (not TCP) so app-template can name/URL the endpoint for NOTES
+          # and probes. Still plain TCP underneath.
+          protocol: HTTP
+          # The port a probe or NOTES URL should point at by default.
+          primary: true
+
+  # ---------------------------------------------------------------------------
+  # Volumes
+  #
+  # All three PVCs set `retain: true`, which annotates them with
+  # `helm.sh/resource-policy: keep`: `helm uninstall` does not delete them.
+  # Losing a toolchain volume to an accidental uninstall costs a re-download;
+  # losing /zeroclaw-data costs git work that was never pushed. Deleting an
+  # orphaned claim is a deliberate, one-line act; recovering one is not.
+  #
+  # THE COST, stated plainly: Helm 3 does not adopt resources it did not
+  # create, so after `helm uninstall` a plain `helm install` of the same
+  # release FAILS with `PersistentVolumeClaim "nilchela-tools" ... exists and
+  # cannot be imported into the current release`. `helm upgrade` on a live
+  # release is unaffected. The recovery is one of:
+  #   * adopt it — swap in the `existingClaim` form below, which is the
+  #     supported way to re-attach a claim you kept; or
+  #   * delete the claims (`kubectl delete pvc nilchela-tools ...`) and accept
+  #     the re-download, which is exactly what `retain` existed to avoid.
+  # The alternative — StatefulSet `volumeClaimTemplates`, which the cluster
+  # re-adopts by name on reinstall — was considered and rejected here because
+  # each template claim gets its own PV, and on a multi-node cluster those PVs
+  # can land on different nodes and leave the pod permanently unschedulable.
+  # Worth revisiting if this chart ever grows past a single-node cluster.
+  #
+  # Adopting claims you already have (for example the `zeroclaw-tools` /
+  # `zeroclaw-cache` pair from an earlier deployment) — replace the block with:
+  #
+  #   tools:
+  #     type: persistentVolumeClaim
+  #     existingClaim: zeroclaw-tools
+  #     advancedMounts: { ...as below... }
+  # ---------------------------------------------------------------------------
+  persistence:
+    # Installed toolchains. Durable and shared.
+    #
+    # RW for the installer, READ-ONLY for the agent. This is the one mount
+    # needing per-container modes, hence `advancedMounts`. The agent executes
+    # these binaries; letting it write them is a path into the next root
+    # `mise install`.
+    tools:
+      type: persistentVolumeClaim
+      accessMode: ReadWriteOnce
+      size: 10Gi
+      retain: true
+      advancedMounts:
+        main:
+          install-tools:
+            - path: /tools
+          main:
+            - path: /tools
+              readOnly: true
+
+    # Build caches (cargo/go/npm/uv), redirected off the durable data volume by
+    # mise.toml's [env] block. Sized as a bound, not a target — bump the size if
+    # a Rust build starts evicting itself.
+    cache:
+      type: persistentVolumeClaim
+      accessMode: ReadWriteOnce
+      size: 5Gi
+      retain: true
+      globalMounts:
+        - path: /cache
+
+    # The agent's own data: repos, workspaces, notes.
+    data:
+      type: persistentVolumeClaim
+      accessMode: ReadWriteOnce
+      size: 10Gi
+      retain: true
+      globalMounts:
+        - path: /zeroclaw-data
+
+    # mise.toml, from the ConfigMap rendered below. Read-only everywhere: mise
+    # reads it at process start, nothing writes it.
+    config:
+      type: configMap
+      identifier: config
+      globalMounts:
+        - path: /config
+          readOnly: true
+
+  # ---------------------------------------------------------------------------
+  # Configuration — mise.toml, rendered into a ConfigMap and mounted at
+  # /config/mise.toml (which is where the image's MISE_GLOBAL_CONFIG_FILE
+  # points).
+  #
+  # On the nested `.` in `mise.toml`: it is part of the ConfigMap key, not a
+  # path separator. On the command line you must escape it:
+  #
+  #   helm upgrade --install nilchela ./charts/nilchela \
+  #     --set-file 'app-template.configMaps.config.data.mise\.toml=./mise.toml'
+  # ---------------------------------------------------------------------------
+  configMaps:
+    config:
+      data:
+        mise.toml: |
+          # ---------------------------------------------------------------------
+          # nilchela — toolchain pins
+          #
+          # This chart deliberately ships NO pinned toolchains. Which tools an
+          # agent needs is deployment policy, and a version chosen here would be
+          # wrong for someone. Nothing installs until you add a [tools] entry —
+          # which also means a fresh install is a valid, working install.
+          #
+          # Pin exactly: no ranges, no "latest". A range forces mise to hit the
+          # network to resolve on every start, which throws away the warm-volume
+          # fast path (and the offline-quiet property with it).
+          #
+          #   [tools]
+          #   go     = "1.27.1"                                        # example
+          #   node   = "24.20.0"                                       # example
+          #   python = "3.14.7"                                        # example
+          #   rust   = { version = "<version>", profile = "default" }
+          #   uv     = "<version>"
+          #   gh     = "<version>"
+          #
+          # See mise.toml.example in the repo root for the full reference —
+          # per-tool options, rust targets and components, dist mirrors.
+          # ---------------------------------------------------------------------
+          [tools]
+
+          # ---------------------------------------------------------------------
+          # Toolchain runtime environment.
+          #
+          # SURFACED BY mise, not by the image: this is the half of the
+          # configuration that must not live in the Dockerfile, or the image
+          # would be coupled to whichever tools you happen to pin.
+          #
+          # Cache redirection is POLICY, not boilerplate — each tool has its own
+          # cache variable, so mise cannot infer these. They keep disposable
+          # registries off the durable /zeroclaw-data volume.
+          # ---------------------------------------------------------------------
+          [env]
+          CARGO_HOME       = "/cache/cargo"
+          GOMODCACHE       = "/cache/go/pkg/mod"
+          GOCACHE          = "/cache/go-build"
+          NPM_CONFIG_CACHE = "/cache/npm"
+          UV_CACHE_DIR     = "/cache/uv"
