@@ -28,12 +28,14 @@ global:
 app-template:
 
   # ---------------------------------------------------------------------------
-  # Controller — one StatefulSet, one replica, no Service.
+  # Controller — one StatefulSet, one replica.
   #
   # StatefulSet rather than Deployment because the pod owns long-lived volumes
-  # and a stable identity: nilchela is a pet, not cattle. No `service:` is
-  # defined — an agent host accepts no inbound traffic, so there is nothing to
-  # front.
+  # and a stable identity: nilchela is a pet, not cattle.
+  #
+  # The pod DOES accept inbound traffic: `zeroclaw daemon` supervises an HTTP
+  # gateway (dashboard + REST API) on port 42617. The `service:` block further
+  # down fronts it, from inside the cluster only.
   # ---------------------------------------------------------------------------
   controllers:
     main:
@@ -53,6 +55,34 @@ app-template:
             # Correct for an exact tag (as above). Set `Always` if you track a
             # moving tag such as `0.0` or `sha-<commit>`.
             pullPolicy: IfNotPresent
+
+          # -----------------------------------------------------------------
+          # Gateway bind.
+          #
+          # The chart mounts a PVC over /zeroclaw-data, which SHADOWS the
+          # image's baked /zeroclaw-data/.zeroclaw/config.toml. The daemon
+          # therefore boots from schema defaults — [gateway] host = 127.0.0.1
+          # (`zeroclaw-config/src/schema.rs`, `default_gateway_host`) — and
+          # would listen on loopback only. The Service below would then front
+          # a port nothing outside the pod can dial.
+          #
+          # These two vars are the schema-mirror override form:
+          # `ZEROCLAW_` + the dotted config path with `.` → `__`. They are
+          # applied AFTER config load and masked back out of anything the
+          # daemon saves, so they set the running bind without writing a file
+          # into the data volume and without being persisted. An unresolvable
+          # ZEROCLAW_ path is a hard startup error, so a typo fails loudly
+          # rather than silently falling back to loopback.
+          #
+          # `allow_public_bind` does not make the gateway public — the Service
+          # type does, and it is ClusterIP. It only silences the daemon's
+          # "binding to all interfaces" warning, which is expected here.
+          #
+          # Set these back to `127.0.0.1`/removed if you disable the Service:
+          # loopback plus `kubectl port-forward` is the tighter posture.
+          env:
+            ZEROCLAW_gateway__host: "0.0.0.0"
+            ZEROCLAW_gateway__allow_public_bind: "true"
 
           # No command/args: the image's ENTRYPOINT is
           # `mise exec -- /usr/local/bin/zeroclaw` with CMD `daemon`, so the
@@ -138,6 +168,44 @@ app-template:
             requests:
               cpu: 100m
               memory: 256Mi
+
+  # ---------------------------------------------------------------------------
+  # Service — one ClusterIP fronting the gateway.
+  #
+  # Why there IS one: `zeroclaw daemon` supervises an HTTP gateway that serves
+  # the dashboard, the REST API and /health on 42617. There is a real inbound
+  # surface, so the chart fronts it rather than leaving every consumer to
+  # rediscover the port.
+  #
+  # Why it is ClusterIP and nothing else: reachability from inside the cluster
+  # is the useful default, and publishing beyond the cluster is a decision this
+  # chart deliberately does not make. No Ingress, no TLS, no LoadBalancer —
+  # add them under `app-template.ingress:` / `service.main.type:` if you want
+  # them. This Service must never be the thing exposed to the public internet.
+  #
+  # SECURITY — /health is UNAUTHENTICATED. It returns
+  # `{"status", "paired", "require_pairing", "runtime"}`: whether the instance
+  # is paired, whether pairing is required, and the runtime health snapshot
+  # (component registry + uptime). The dashboard and /api/* do require the
+  # gateway's own pairing/TLS posture, but /health does not — so anyone who can
+  # reach this Service can read pairing state. Inside a cluster that is
+  # acceptable and is why ClusterIP is the default; the moment you put an
+  # Ingress in front, terminate auth there before anything reaches /health.
+  # ---------------------------------------------------------------------------
+  service:
+    main:
+      controller: main
+      # ClusterIP is app-template's default; stated explicitly because it is a
+      # security decision here, not an inherited detail.
+      type: ClusterIP
+      ports:
+        http:
+          port: 42617
+          # HTTP (not TCP) so app-template can name/URL the endpoint for NOTES
+          # and probes. Still plain TCP underneath.
+          protocol: HTTP
+          # The port a probe or NOTES URL should point at by default.
+          primary: true
 
   # ---------------------------------------------------------------------------
   # Volumes

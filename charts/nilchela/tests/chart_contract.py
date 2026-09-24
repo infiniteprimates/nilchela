@@ -4,10 +4,11 @@ exists to encode, against a live `helm template` render.
 
 Why this exists: the chart is a wrapper, so most of its behaviour is
 app-template's. What is *ours* is the pod model — root installer, non-root
-agent, read-only /tools, split ownership, no fsGroup — plus the assumption that
-app-template resolves `advancedMounts` for an initContainer by key. Neither the
-Helm linter nor app-template's own values schema can check any of that. This
-can, on every PR.
+agent, read-only /tools, split ownership, no fsGroup — the gateway's exposure
+posture (ClusterIP Service on the gateway port, bound off loopback, no probes),
+plus the assumption that app-template resolves `advancedMounts` for an
+initContainer by key. Neither the Helm linter nor app-template's own values
+schema can check any of that. This can, on every PR.
 
 Deliberately dependency-light (PyYAML only) and read-only: it renders nothing,
 it inspects what Helm produced.
@@ -30,6 +31,7 @@ TOOLS_PATH = "/tools"
 CONFIG_PATH = "/config"
 CACHE_PATH = "/cache"
 DATA_PATH = "/zeroclaw-data"
+GATEWAY_PORT = 42617
 
 
 class Checker:
@@ -122,22 +124,41 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
 
     pod_spec = spec_of(statefulsets[0]).get("template", {}).get("spec") or {}
 
-    # -- the StatefulSet has a serviceName, even with no Service defined.
-    # app-template defaults it to the chart fullname; a StatefulSet without it
-    # is rejected by the API server.
+    # -- the StatefulSet has a serviceName. app-template defaults it to the
+    # chart fullname; a StatefulSet without it is rejected by the API server,
+    # so this is populated whether or not any Service is rendered.
     checker.check(
         "StatefulSet sets spec.serviceName",
         bool(spec_of(statefulsets[0]).get("serviceName")),
     )
 
-    # -- no Service. An agent host accepts no inbound traffic, so a Service
-    # would be dead weight. Asserted rather than merely omitted: the absence
-    # is a design decision, and one added `service:` key would undo it
-    # silently.
+    # -- exactly one Service, ClusterIP, on the gateway port.
+    #
+    # `zeroclaw daemon` supervises an HTTP gateway, so there IS an inbound
+    # surface — the chart fronts it. What is asserted is that it is exposed
+    # inside the cluster only, and on the gateway's port. The type is a
+    # security invariant, not a preference: anything but ClusterIP publishes an
+    # unauthenticated /health (pairing state + runtime snapshot) beyond the
+    # cluster boundary.
+    services = by_kind(manifests, "Service")
     checker.check(
-        "no Service is rendered (the agent host takes no inbound traffic)",
-        not by_kind(manifests, "Service"),
+        "exactly one Service is rendered",
+        len(services) == 1,
+        f"found {len(services)}",
     )
+    if len(services) == 1:
+        service_spec = spec_of(services[0])
+        checker.check(
+            "the Service is ClusterIP (the gateway is not published off-cluster)",
+            service_spec.get("type") in (None, "ClusterIP"),
+            f"type={service_spec.get('type')!r}",
+        )
+        service_ports = service_spec.get("ports") or []
+        checker.check(
+            f"the Service exposes the gateway port {GATEWAY_PORT}",
+            any(str(port.get("port")) == str(GATEWAY_PORT) for port in service_ports),
+            f"ports={[port.get('port') for port in service_ports]}",
+        )
 
     # -- no fsGroup anywhere on the pod (see values.yaml for why).
     pod_security = pod_spec.get("securityContext") or {}
@@ -169,6 +190,40 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
         checker.check(
             "main container does not override the image entrypoint/CMD",
             not main.get("command") and not main.get("args"),
+        )
+
+        # -- the gateway must listen on an interface the Service can dial.
+        # The PVC at /zeroclaw-data shadows the image's baked config.toml, which
+        # drops the gateway to its schema default (host 127.0.0.1); without
+        # these overrides the Service above fronts a port nothing outside the
+        # pod can reach. The two checks move together by design.
+        env_map = {
+            item.get("name"): item.get("value")
+            for item in (main.get("env") or [])
+            if isinstance(item, dict)
+        }
+        bind_host = env_map.get("ZEROCLAW_gateway__host")
+        checker.check(
+            "main container binds the gateway off loopback",
+            bind_host not in (None, "", "127.0.0.1", "localhost"),
+            f"ZEROCLAW_gateway__host={bind_host!r}",
+        )
+        allow_public = env_map.get("ZEROCLAW_gateway__allow_public_bind")
+        checker.check(
+            "main container opts into a non-loopback bind explicitly",
+            str(allow_public).lower() == "true",
+            f"ZEROCLAW_gateway__allow_public_bind={allow_public!r}",
+        )
+
+        # -- and still no probes, by design (chart README): a liveness probe
+        # restarts a pet pod and drops in-flight agent work, and Ready on
+        # Running is the documented trade-off. Asserted so a probe cannot
+        # arrive unnoticed by someone who has not read that decision.
+        checker.check(
+            "main container renders no probes (restart stays a deliberate act)",
+            not main.get("livenessProbe")
+            and not main.get("readinessProbe")
+            and not main.get("startupProbe"),
         )
 
     # -- the installer: root, on the RW side of /tools, actually running mise.

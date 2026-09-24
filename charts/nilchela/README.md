@@ -2,8 +2,9 @@
 
 Deploys [nilchela](https://github.com/infiniteprimates/nilchela) — the thin
 ZeroClaw dev image that installs `mise`-managed toolchains at runtime — as a
-single-replica StatefulSet with its volumes, its `mise.toml` ConfigMap, and the
-ownership model the image expects.
+single-replica StatefulSet with its volumes, its `mise.toml` ConfigMap, the
+ownership model the image expects, and a ClusterIP Service in front of the
+ZeroClaw gateway.
 
 - Chart version: `0.0.0` · App version: `0.0.3` (the image tag it deploys)
 - Requires Kubernetes `>= 1.28` (inherited from app-template) and Helm 3.x
@@ -34,7 +35,7 @@ What that buys:
   rendering are app-template's problem, not this repo's.
 - **The whole app-template surface, for free.** Probes, extra containers,
   Ingress, NetworkPolicy, `defaultPodOptions` — all reachable by adding keys
-  under `app-template:`.
+  under `app-template:`. The Service this chart renders is app-template's, too.
 - **Upgrades are a version bump** plus a re-read of app-template's upgrade
   notes, not a re-audit of hand-written manifests.
 
@@ -60,7 +61,8 @@ What it costs — read this before you file a bug about it:
 
 ## What the defaults encode
 
-The image makes four promises. The chart exists mostly to keep them:
+The image makes four promises. The chart exists mostly to keep them — plus one
+it has to keep on the image's behalf, because a volume mount breaks it:
 
 | Promise | Where it lives | Why |
 |---|---|---|
@@ -68,6 +70,10 @@ The image makes four promises. The chart exists mostly to keep them:
 | The agent runs non-root | `containers.main` (`runAsUser: 65534`) | the image's posture, preserved |
 | The agent cannot write `/tools` | `persistence.tools.advancedMounts` | this is the one mount needing per-container modes: RW for the installer, `readOnly: true` for the agent |
 | No `fsGroup` | nowhere — by omission | an fsGroup hands the agent's group write access to `/tools`; with a root-owned installer that is an escalation path into the toolchains the agent is about to execute |
+| The gateway binds all interfaces | `containers.main.env` (`ZEROCLAW_gateway__host`, `ZEROCLAW_gateway__allow_public_bind`) | the PVC at `/zeroclaw-data` shadows the image's baked `config.toml`, so the daemon otherwise falls back to `host = 127.0.0.1` — and the Service would front a port nothing outside the pod can dial |
+
+The last row is not an image promise; it is the chart undoing an accident it
+causes. See [The Service, and the bind it needs](#the-service-and-the-bind-it-needs).
 
 Because a pod-level `runAsNonRoot: true` combined with a container-level
 `runAsUser: 0` is a hard kubelet error, the ownership split is per-container —
@@ -138,24 +144,74 @@ is not.
 
 ---
 
-## No Service, and no probes — deliberately
+## The Service, and the bind it needs
 
-There is no `Service` and there are no probes. Assert both against the
-`values.yaml` you ship rather than assuming them:
+`zeroclaw daemon` supervises an HTTP gateway, so the pod *does* take inbound
+traffic. The chart renders one **ClusterIP** `Service` on `42617` in front of it.
 
-- **No Service.** An agent host accepts no inbound traffic, so there is nothing
-  to front. The StatefulSet is still valid without one — Kubernetes requires
-  `spec.serviceName` to be *populated*, not to resolve. Access is `logs` and
-  `exec`.
-- **No probes.** app-template adds none by default, and there is no HTTP
-  endpoint to point one at. The consequences are worth stating rather than
-  discovering: the pod reports **Ready as soon as the container is Running**,
-  so `helm install --wait` returning success says nothing about whether the
-  agent works; and a wedged agent is **never restarted** — supervision is
-  manual. If you want either, add an exec probe under
-  `app-template.controllers.main.containers.main.probes`; note that probes do
-  not cover initContainers, so a cold `mise install` still runs entirely
+- **ClusterIP, and only ClusterIP.** Reaching the gateway from inside the
+  cluster is the useful default; publishing it beyond the cluster is a decision
+  this chart deliberately does not make. No Ingress, no TLS, no LoadBalancer.
+- **Ingress/TLS are the consumer's call** — and if you add them, terminate
+  authentication there, because of the `/health` note below.
+- **The Service is only useful because the bind is fixed.** The chart's PVC at
+  `/zeroclaw-data` **shadows** the image's baked
+  `/zeroclaw-data/.zeroclaw/config.toml`, so the daemon starts from schema
+  defaults (`[gateway] host = 127.0.0.1`) and would listen on loopback only —
+  and the Service would front a port nothing outside the pod can dial. Two
+  schema-mirror env vars on the main container move it to `0.0.0.0`:
+
+  ```yaml
+  app-template:
+    controllers:
+      main:
+        containers:
+          main:
+            env:
+              ZEROCLAW_gateway__host: "0.0.0.0"
+              ZEROCLAW_gateway__allow_public_bind: "true"
+  ```
+
+  `ZEROCLAW_<dotted path, . → __>` is applied *after* config load and masked
+  back out of anything the daemon saves, so it sets the running bind without
+  writing a file into the data volume. An unresolvable `ZEROCLAW_` path is a
+  hard startup error, so a typo fails loudly instead of silently reverting to
+  loopback. `allow_public_bind` only silences the daemon's "binding to all
+  interfaces" warning; it does **not** make the gateway public — the Service
+  `type` does that, and it is `ClusterIP`.
+
+  Disable the Service (`app-template.service.main.enabled: false`) and drop
+  these two vars together: loopback plus `kubectl port-forward` is the tighter
+  posture, and a fixed bind with no Service is strictly worse than either.
+
+> **`/health` is unauthenticated.** It returns `status`, `paired`,
+> `require_pairing` and a runtime health snapshot (component registry + uptime)
+> with no auth at all. The dashboard and `/api/*` honour the gateway's
+> pairing/TLS posture; `/health` does not. Inside a cluster that is acceptable —
+> which is exactly why `ClusterIP` is the default. The moment you put an Ingress
+> in front of this Service, terminate auth there before anything reaches
+> `/health`.
+
+### No probes — still deliberate
+
+app-template adds none by default and this chart does not either. The gateway
+*does* have `/health`, so a probe is now possible — it was not, and older copies
+of this document said otherwise. What remains true is that neither probe is
+right for every consumer:
+
+- Without a probe, the pod reports **Ready as soon as the container is
+  Running**, so `helm install --wait` returning success says nothing about
+  whether the agent works.
+- A liveness probe restarts a pet pod — a restart drops in-flight agent work,
+  and an agent wedged on a model call still answers liveness. Restarting it
+  should be a deliberate choice, not a default.
+- Probes do not cover `initContainers`, so a cold `mise install` runs entirely
   before the main container exists.
+
+If you want one, a **readiness** HTTP probe on `/health` is the safe shape
+(`app-template.controllers.main.containers.main.probes.readiness`) — the
+unauthenticated endpoint that makes it a poor public URL is what makes it a good
+probe target.
 
 ---
 

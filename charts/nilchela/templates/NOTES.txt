@@ -25,10 +25,23 @@ a cold volume and is near-instant afterwards:
 
 Bumping a tool is a mise.toml edit and a roll — the image never rebuilds.
 
-No Service and no probes, by design. An agent host accepts no inbound traffic,
-so there is nothing to front and no endpoint worth probing: the pod reports
-Ready the moment the container is Running, which means "install succeeded" and
-"the agent works" are two different facts. Watch the logs, and note that a
-wedged agent is not restarted automatically:
+The ZeroClaw gateway is fronted by a ClusterIP Service — cluster-internal only,
+no Ingress and no TLS. With the documented release name the Service is
+`{{ .Release.Name }}`:
+
+  kubectl -n {{ .Release.Namespace }} get svc {{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }} 42617:42617
+
+(Any other release name yields `<release>-nilchela`; `kubectl get svc` is the
+authority.)
+
+/health IS UNAUTHENTICATED. It reports pairing state (`paired`,
+`require_pairing`) and a runtime health snapshot. That is acceptable from inside
+the cluster, which is why the Service is ClusterIP and not LoadBalancer or
+Ingress — if you add one, terminate authentication in front of it.
+
+No probes, by design. The pod reports Ready the moment the container is Running,
+so "install succeeded" and "the agent works" are two different facts, and a
+wedged agent is not restarted automatically. Watch the logs:
 
   kubectl -n {{ .Release.Namespace }} logs -f <pod> -c main

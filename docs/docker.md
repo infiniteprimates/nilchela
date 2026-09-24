@@ -94,6 +94,23 @@ This is the pod model the image is built for, and what the
    **read-only**, and gets its toolchain env from shims plus `mise.toml`'s
    `[env]`.
 
+4. **The HTTP gateway** — `zeroclaw daemon` supervises one, on port `42617`:
+   the dashboard, the REST API and `/health`. The base image bakes a
+   `[gateway]` config (`host = "[::]"`, `allow_public_bind = true`) at
+   `/zeroclaw-data/.zeroclaw/config.toml`, so a bare `docker run` **does** bind
+   all interfaces. The Helm chart mounts a PVC over `/zeroclaw-data`, which
+   **shadows** that baked file — the daemon then falls back to its schema
+   default (`host = 127.0.0.1`), which is loopback-only. The chart compensates
+   with two schema-mirror env vars (`ZEROCLAW_gateway__host`,
+   `ZEROCLAW_gateway__allow_public_bind`) so its ClusterIP Service has
+   something to front. Anything reproducing this pod model by hand must do the
+   same, or the gateway will be dialable only from inside the pod.
+
+   > **`/health` is unauthenticated.** It returns pairing state (`paired`,
+   > `require_pairing`) and a runtime health snapshot. It is a fine probe
+   > target and a poor published URL — terminate auth in front of anything you
+   > expose beyond the cluster.
+
 **The deployment deliberately uses no `fsGroup`** — split ownership
 (`/tools` → root, `/cache` and `/zeroclaw-data` → `65534`) is done per-volume.
 An fsGroup would also grant the agent's group write access to `/tools`, and the
