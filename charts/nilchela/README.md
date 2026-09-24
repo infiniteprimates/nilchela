@@ -5,7 +5,7 @@ ZeroClaw dev image that installs `mise`-managed toolchains at runtime — as a
 single-replica StatefulSet with its volumes, its `mise.toml` ConfigMap, and the
 ownership model the image expects.
 
-- Chart version: `0.1.0` · App version: `0.0.3` (the image tag it deploys)
+- Chart version: `0.0.0` · App version: `0.0.3` (the image tag it deploys)
 - Requires Kubernetes `>= 1.28` (inherited from app-template) and Helm 3.x
 
 ```bash

@@ -5,8 +5,9 @@ description: |
   mise-managed toolchains at runtime instead of baking them into the image.
 type: application
 
-# Chart version — bump on any chart change (SemVer).
-version: 0.1.0
+# Chart version — bump on any chart change (SemVer). Starts at 0.0.0 to match
+# the image's own versioning, which also begins at v0.0.0.
+version: 0.0.0
 
 # Application version — the nilchela IMAGE version this chart deploys by
 # default. Must match `app-template.controllers.main.containers.main.image.tag`

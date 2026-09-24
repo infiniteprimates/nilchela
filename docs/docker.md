@@ -1,6 +1,6 @@
 # The Docker image
 
-Everything about building, emulating, and publishing the nilchela image. The
+Everything about building, locally testing, and publishing the nilchela image. The
 [main README](../README.md) covers what nilchela is and how to run it; this is
 the image-side detail.
 

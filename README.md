@@ -139,8 +139,6 @@ PRs welcome. Keep the two design invariants intact:
 1. **Thin image** — no toolchains baked in; they install at runtime via `mise`.
 2. **Non-root** — always return to `USER 65534` after any root-only install steps.
 
-If you touch the Helm chart, keep its third: **the agent never writes `/tools`**. [`charts/nilchela/tests/chart_contract.py`](charts/nilchela/tests/chart_contract.py) enforces it.
-
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. The code of conduct is in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and the security policy in [SECURITY.md](SECURITY.md).
 
 The key design decisions (the `[tools]` vs `[env]` split, storage tiers, the no-`fsGroup` ownership model) are explained inline in [`Dockerfile`](Dockerfile), [`docs/docker.md`](docs/docker.md), and the chart's own README.
