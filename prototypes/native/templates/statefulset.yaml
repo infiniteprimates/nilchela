@@ -1,0 +1,167 @@
+{{/*
+  Own manifests, top to bottom. The invariants prototype A had to *encode in a
+  translation* are structural here:
+
+    - an init container's position IS its order, so install-tools cannot run
+      before fix-ownership (no dependsOn to lose);
+    - /tools is writable in exactly one container and read-only in the other,
+      visible in one file;
+    - there is no probes key to set, and no pod-options passthrough beyond the
+      three scheduling fields the schema allows;
+    - the env that fixes the gateway bind is emitted only when the Service that
+      needs it is emitted.
+
+  Cost: this file is ours forever. Every future need (extra volume, sidecar,
+  changed mount) is a template edit and a chart release, where app-template would
+  have had a key for it already.
+*/}}
+{{- $fullname := include "nilchela.fullname" . -}}
+{{- $image := include "nilchela.image" . -}}
+{{- $svcEnabled := eq (include "nilchela.serviceEnabled" .) "true" -}}
+{{- $sched := .Values.scheduling | default dict -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "nilchela.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ $fullname }}
+  selector:
+    matchLabels:
+      {{- include "nilchela.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nilchela.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $fullname }}
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+      {{- with $sched.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $sched.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $sched.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Runs as root so it can hand the agent a volume the agent does not own.
+        # This is the alternative to fsGroup, which would grant the agent write
+        # access to the toolchains it is about to execute.
+        - name: fix-ownership
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["chown"]
+          args: ["65534:65534", "/cache", "/zeroclaw-data"]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+            - name: cache
+              mountPath: /cache
+            - name: data
+              mountPath: /zeroclaw-data
+        # Second init container, therefore second: ordering is positional here.
+        - name: install-tools
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["mise"]
+          args: ["install"]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+            - name: cache
+              mountPath: /cache
+            - name: data
+              mountPath: /zeroclaw-data
+            - name: config
+              mountPath: /config
+              readOnly: true
+      containers:
+        - name: main
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # No liveness/readiness probes, deliberately: the agent has no signal
+          # that means "wedged but recoverable", and a probe that restarts an
+          # agent mid-task destroys work. Ready on Running is the honest report.
+          env:
+            {{- if $svcEnabled }}
+            # The PVC over /zeroclaw-data shadows the image's baked config.toml,
+            # so without these the daemon binds loopback and the Service above
+            # fronted a port nothing can dial. Schema-mirror overrides, applied
+            # after config load and masked from anything the daemon saves.
+            - name: ZEROCLAW_gateway__host
+              value: "0.0.0.0"
+            - name: ZEROCLAW_gateway__allow_public_bind
+              value: "true"
+            {{- end }}
+            {{- range $k, $val := (.Values.env | default dict) }}
+            - name: {{ $k }}
+              value: {{ $val | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.gateway.service.port | default 42617 }}
+              protocol: TCP
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            # Read-only: the agent executes these toolchains, it does not own them.
+            - name: tools
+              mountPath: /tools
+              readOnly: true
+            - name: cache
+              mountPath: /cache
+            - name: data
+              mountPath: /zeroclaw-data
+            - name: config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: tools
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-tools" $fullname) .Values.storage.tools.existingClaim }}
+        - name: cache
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-cache" $fullname) .Values.storage.cache.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-data" $fullname) .Values.storage.data.existingClaim }}
+        - name: config
+          configMap:
+            name: {{ $fullname }}-config

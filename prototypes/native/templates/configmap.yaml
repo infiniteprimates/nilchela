@@ -1,0 +1,38 @@
+{{/*
+  mise.toml, rendered from .Values.tools.
+
+  The cache redirection in [env] is policy, not boilerplate: each toolchain has
+  its own variable, so mise cannot infer them, and leaving them unset puts
+  disposable registries on the durable /zeroclaw-data volume.
+*/}}
+{{- $tools := .Values.tools | default dict -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nilchela.fullname" . }}-config
+  labels:
+    {{- include "nilchela.labels" . | nindent 4 }}
+data:
+  mise.toml: |
+    # Rendered from .Values.tools — pin exactly, no ranges.
+    [tools]
+    {{- range $k, $val := $tools }}
+    {{- if not (kindIs "map" $val) }}
+    {{ $k }} = {{ $val | quote }}
+    {{- end }}
+    {{- end }}
+    {{- range $k, $val := $tools }}
+    {{- if kindIs "map" $val }}
+    [tools.{{ $k }}]
+    {{- range $ik, $iv := $val }}
+    {{ $ik }} = {{ if kindIs "string" $iv }}{{ $iv | quote }}{{ else }}{{ $iv }}{{ end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+
+    [env]
+    CARGO_HOME       = "/cache/cargo"
+    GOMODCACHE       = "/cache/go/pkg/mod"
+    GOCACHE          = "/cache/go-build"
+    NPM_CONFIG_CACHE = "/cache/npm"
+    UV_CACHE_DIR     = "/cache/uv"

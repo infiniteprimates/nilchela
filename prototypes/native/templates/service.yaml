@@ -1,0 +1,25 @@
+{{/*
+  Same switch as prototype A, implemented the direct way: the Service and the
+  bind overrides are decided by one value, so they cannot disagree.
+
+  SECURITY: /health is unauthenticated — it reports whether the instance is
+  paired. In-cluster only by default, and anything put in front of it has to
+  terminate auth first.
+*/}}
+{{- if eq (include "nilchela.serviceEnabled" .) "true" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nilchela.fullname" . }}
+  labels:
+    {{- include "nilchela.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.gateway.service.type | default "ClusterIP" }}
+  selector:
+    {{- include "nilchela.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.gateway.service.port | default 42617 }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

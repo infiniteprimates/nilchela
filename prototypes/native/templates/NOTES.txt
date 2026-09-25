@@ -1,0 +1,46 @@
+nilchela {{ .Chart.AppVersion }} — release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+{{- if not .Values.tools }}
+
+No toolchains are pinned yet. Nothing will be installed until you add one:
+
+  helm upgrade {{ .Release.Name }} ./prototypes/native --reuse-values \
+    --set tools.go=1.27.1
+
+{{- else }}
+
+Pinned toolchains:
+
+{{- range $name, $spec := .Values.tools }}
+  {{ $name }}{{ if kindIs "map" $spec }} ({{ toJson $spec }}){{ else }} {{ $spec }}{{ end }}
+{{- end }}
+
+{{- end }}
+
+Check the pod:
+
+  kubectl -n {{ .Release.Namespace }} get pod -l app.kubernetes.io/name=nilchela
+  kubectl -n {{ .Release.Namespace }} logs -f {{ .Release.Name }}-0 -c install-tools
+  kubectl -n {{ .Release.Namespace }} logs -f {{ .Release.Name }}-0 -c main
+
+The volumes are retained: each claim carries helm.sh/resource-policy: keep, so
+`helm uninstall` does not delete them. A plain reinstall afterwards fails on the
+existing claims — adopt them (storage.<volume>.existingClaim) or delete them and
+accept the re-download.
+
+{{- if .Values.gateway.service.enabled }}
+
+The gateway is fronted in-cluster only:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }} {{ .Values.gateway.service.port }}:{{ .Values.gateway.service.port }}
+
+/health on that Service is UNAUTHENTICATED — it reports whether the instance is
+paired. Terminate auth before putting anything in front of it.
+
+{{- else }}
+
+No Service is rendered; the daemon listens on loopback. Reach it with:
+
+  kubectl -n {{ .Release.Namespace }} port-forward {{ .Release.Name }}-0 42617:42617
+
+{{- end }}
