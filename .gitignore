@@ -15,3 +15,9 @@ mise.local.toml
 # Build/env
 .env
 .env.*
+
+# Helm: vendored dependency archives/dirs are produced by `helm dependency build`,
+# never committed. (`Chart.lock` is deliberately NOT ignored here — locking the
+# dependency graph is a separate policy decision for the maintainers.)
+**/charts/*.tgz
+**/charts/*/

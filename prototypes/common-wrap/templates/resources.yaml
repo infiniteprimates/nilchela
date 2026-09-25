@@ -16,6 +16,15 @@
   normalises/validates before generate) — see README.md.
 */}}
 {{- $translated := include "nilchela.translate" . | fromYaml -}}
+{{/* SPIKE FIX: the library's chart.names.* helpers read .Values.global, so the
+     synthetic context must be shaped like a chart's values root, not only like
+     the app-template controller shape. Supply an empty global map. */}}
+{{- $_ := set $translated "global" (default (dict) (get $translated "global")) -}}
+{{/* The library iterates more class roots than the controller shape supplies;
+     it nil-pointers on each absent one. Probe: seed them one at a time and count
+     how many the translation must fabricate. */}}
+{{- $_ := set $translated "rbac" (default (dict) (get $translated "rbac")) -}}
+{{- $_ := set $translated "rbac" (merge (dict "roles" (dict)) (get $translated "rbac")) -}}
 {{- $ctx := dict
       "Values" $translated
       "Release" .Release

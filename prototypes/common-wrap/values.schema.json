@@ -5,6 +5,10 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "common": {
+      "type": "object",
+      "description": "SPIKE FIX: Helm injects the library dependency's values under this key before schema validation. It is NOT part of the user surface — the translation never reads it. Present only so additionalProperties:false does not reject Helm's own bookkeeping."
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,
