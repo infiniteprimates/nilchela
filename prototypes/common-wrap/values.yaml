@@ -1,0 +1,71 @@
+# =============================================================================
+# nilchela — native values (PROTOTYPE A)
+#
+# Every key here is a nilchela concept. There is no app-template vocabulary in
+# this file by design: templates/_translate.tpl maps these onto the shape the
+# bjw-s `common` library renders from. Nothing about collections, `advancedMounts`
+# or `main` as a magic key is user-visible.
+#
+# Unknown keys are rejected by values.schema.json — a typo must fail the render,
+# not be silently ignored.
+# =============================================================================
+
+image:
+  repository: ghcr.io/infiniteprimates/nilchela
+  # Empty means .Chart.AppVersion — the image version this chart deploys.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Toolchains, rendered into the mise.toml [tools] table.
+#
+# Empty is a valid install: nothing is installed until you add an entry. Pin
+# exactly — a range makes mise resolve over the network on every start, which
+# throws away the warm-volume fast path.
+#
+# Nested maps become TOML sub-tables, e.g. rust: { version: "...", profile: default }
+# renders as [tools.rust].
+tools: {}
+  # go: "1.27.1"
+  # node: "24.20.0"
+  # python: "3.14.7"
+
+# Extra container environment. `ZEROCLAW_`-prefixed keys set the daemon's own
+# config, in schema-mirror form (ZEROCLAW_gateway__host). The gateway bind the
+# Service needs is derived from gateway.service — see gateway.service.enabled.
+env: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  # No limits on purpose: this is a build host. A CPU/memory limit turns a slow
+  # `cargo build` into an OOMKill instead.
+
+storage:
+  tools:
+    size: 10Gi
+  cache:
+    size: 5Gi
+  data:
+    size: 10Gi
+
+gateway:
+  # The daemon supervises an HTTP gateway (dashboard, REST API, /health) on 42617.
+  # Enabling the Service also fixes the bind: the PVC over /zeroclaw-data shadows
+  # the image's baked config.toml, so the daemon would otherwise listen on
+  # loopback and the Service would front a port nothing can dial. One switch, not
+  # two things that must agree.
+  #
+  # SECURITY: /health is unauthenticated. Anyone who can reach the Service can
+  # read pairing state — which is why the default is in-cluster only.
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 42617
+
+# Pod placement, passed through to the pod spec. Unchanged from app-template's
+# own keys, because there is nothing to rename.
+scheduling: {}
+  # nodeSelector: {}
+  # tolerations: []
+  # affinity: {}

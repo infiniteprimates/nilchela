@@ -1,0 +1,32 @@
+{{/*
+  PROTOTYPE A — render everything through the bjw-s `common` library, from values
+  the library has never seen.
+
+  Why this works (read from the library source at 5.1.0, not assumed):
+
+    templates/loader/_all.tpl      -> define "bjw-s.common.loader.all"
+    templates/loader/_generate.tpl -> $rootContext := $ , then renders each
+                                      resource class from that context
+
+  The loader resolves everything from the *context it is handed*, so a synthetic
+  context carrying our translated values renders normally. That is the whole
+  mechanism: the library is a renderer we call, not a subchart that renders itself.
+
+  First thing to pin down empirically: templates/loader/_init.tpl (what it
+  normalises/validates before generate) — see README.md.
+*/}}
+{{- $translated := include "nilchela.translate" . | fromYaml -}}
+{{/* The library's defaults do NOT live in app-template's values.yaml (it is empty);
+     they live in common/values.yaml, which Helm injects here as .Values.common
+     because `common` is a declared dependency. Seeding it is what supplies
+     global/rbac/etc. and creates the default ServiceAccount — the spike's manual
+     fabrication of those keys was unnecessary. */}}
+{{- $_ := set $translated "common" .Values.common -}}
+{{- $ctx := dict
+      "Values" $translated
+      "Release" .Release
+      "Chart" .Chart
+      "Capabilities" .Capabilities
+      "Template" .Template
+      "Files" .Files -}}
+{{- include "bjw-s.common.loader.all" $ctx -}}

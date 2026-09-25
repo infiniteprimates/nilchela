@@ -1,0 +1,23 @@
+apiVersion: v2
+name: nilchela
+description: |
+  PROTOTYPE A — nilchela behind a native values interface, rendered by the bjw-s
+  `common` library chart. Experiment only; see README.md.
+type: application
+version: 0.1.0
+appVersion: "0.0.3"
+
+# The common library requires Kubernetes >= 1.28.
+kubeVersion: ">=1.28.0-0"
+
+home: https://github.com/infiniteprimates/nilchela
+sources:
+  - https://github.com/infiniteprimates/nilchela
+
+# NOTE the dependency: `common` (type: library), NOT `app-template`. The library
+# supplies the render helpers and reads nothing from .Values.app-template — it
+# renders whatever values shape we hand its loader.
+dependencies:
+  - name: common
+    version: 5.1.0
+    repository: https://bjw-s-labs.github.io/helm-charts
