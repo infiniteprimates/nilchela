@@ -1,0 +1,34 @@
+{{/*
+  Three claims, written out. Standalone objects rather than
+  spec.volumeClaimTemplates, because volumeClaimTemplates are owned by the
+  StatefulSet and are deleted with it — and these volumes are the expensive part
+  of the install.
+
+  Retention is an annotation we set explicitly, so it survives helm uninstall.
+  The consequence is real and documented in NOTES.txt: a later reinstall collides
+  with the surviving claims.
+*/}}
+{{- $fullname := include "nilchela.fullname" . -}}
+{{- range $key := (list "tools" "cache" "data") }}
+{{- $claim := index $.Values.storage $key -}}
+{{- if not $claim.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-{{ $key }}
+  labels:
+    {{- include "nilchela.labels" $ | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with $claim.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $claim.size }}
+{{- end }}
+{{- end }}

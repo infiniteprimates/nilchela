@@ -1,0 +1,18 @@
+apiVersion: v2
+name: nilchela
+description: |
+  PROTOTYPE B — nilchela as a self-contained chart. No app-template, no library
+  chart: every manifest is ours. Experiment only; see README.md.
+type: application
+version: 0.1.0
+appVersion: "0.0.3"
+
+kubeVersion: ">=1.28.0-0"
+
+home: https://github.com/infiniteprimates/nilchela
+sources:
+  - https://github.com/infiniteprimates/nilchela
+
+# Deliberately empty. That is the whole difference from prototype A, and the
+# question this prototype exists to answer: what does owning the manifests cost?
+dependencies: []
