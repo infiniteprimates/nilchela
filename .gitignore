@@ -16,7 +16,7 @@ mise.local.toml
 .env
 .env.*
 
-# Helm chart dependency output. `helm dependency build` resolves app-template
-# (and its common library) into charts/nilchela/charts/; those archives are
-# reproducible from the pinned version in Chart.yaml, so they are not committed.
+# Helm chart dependency output. `helm dependency build` resolves the bjw-s
+# `common` library into charts/nilchela/charts/; that archive is reproducible
+# from the pinned version in Chart.yaml, so it is not committed.
 charts/nilchela/charts/

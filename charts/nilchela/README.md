@@ -7,7 +7,7 @@ ownership model the image expects, and a ClusterIP Service in front of the
 ZeroClaw gateway.
 
 - Chart version: `0.0.0` · App version: `0.0.3` (the image tag it deploys)
-- Requires Kubernetes `>= 1.28` (inherited from app-template) and Helm 3.x
+- Requires Kubernetes `>= 1.28` (the render library's floor) and Helm 3.x
 
 ```bash
 helm dependency build charts/nilchela
@@ -21,41 +21,57 @@ StatefulSet `nilchela`, PVCs `nilchela-tools` / `nilchela-cache` /
 
 ---
 
-## This chart is a wrapper, and that is the whole design
+## The public interface belongs to this chart
 
-It contains no Kubernetes templates. It declares
-[bjw-s `app-template`](https://bjw-s-labs.github.io/helm-charts/docs/app-template/)
-as a dependency, pins it, and supplies values in **app-template's** schema.
-Everything app-template can do, this chart can do; nothing about resource
-rendering is re-invented here.
+Four files, and only the first two are yours:
+
+| File | Role |
+|---|---|
+| `values.yaml` | the surface — nilchela concepts only |
+| `values.schema.json` | rejects unknown or malformed keys before render |
+| `templates/_translate.tpl` | maps those values onto the shape the render library reads |
+| `templates/resources.yaml` | calls `bjw-s.common.loader.all` with a context built from the translation |
+
+The chart writes no Kubernetes YAML of its own. StatefulSet, PVCs, ConfigMap,
+Service and ServiceAccount are rendered by
+[bjw-s `common`](https://bjw-s-labs.github.io/helm-charts/) —
+the **library** chart — pinned exactly. What this chart owns is the vocabulary
+the user writes, and every invariant that vocabulary has to preserve.
+
+Why it is built this way: Helm merges subchart values **before** render, so a
+chart that depends on `app-template` as a subchart cannot translate its own
+values into the subchart's. There is no hook for it — the dependency's schema
+*is* the parent's public API, and stays that way. Depending on the library
+instead turns rendering into a call this chart makes, which is what leaves room
+for a translation.
 
 What that buys:
 
-- **No template maintenance.** Deployment/StatefulSet, PVC, ConfigMap and pod
-  rendering are app-template's problem, not this repo's.
-- **The whole app-template surface, for free.** Probes, extra containers,
-  Ingress, NetworkPolicy, `defaultPodOptions` — all reachable by adding keys
-  under `app-template:`. The Service this chart renders is app-template's, too.
-- **Upgrades are a version bump** plus a re-read of app-template's upgrade
-  notes, not a re-audit of hand-written manifests.
+- **No vocabulary leak.** `image.tag`, `tools.go`, `storage.tools.size`. No
+  collections, no `advancedMounts`, no `main` as a magic key, no `app-template:`
+  nesting, and no ConfigMap key that has to be escaped on the command line.
+- **Fail-fast input.** Unknown or malformed keys fail the render. A chart that
+  exposes its dependency's schema cannot do this — the renderer simply ignores
+  what it does not recognise.
+- **Invariants are structural, not prose.** There is no `probes:` or `ingress:`
+  key to set, no `defaultPodOptions` to reach through, and no wholesale
+  `app-template:` spread. See *What is deliberately not exposed*.
+- **The dependency's versioning is our problem, not the user's.** A `common`
+  bump changes this chart's internals; the values a user already wrote keep
+  their shape. `tests/chart_contract.py` is the regression test for that claim.
 
 What it costs — read this before you file a bug about it:
 
-- **Values are nested and verbose.** Overrides look like
-  `app-template.controllers.main.containers.main.image.tag`, because Helm only
-  passes values to a subchart under the dependency's name. There is no flat
-  `image.tag` shorthand, and there cannot be: Helm cannot template the values
-  it hands to a subchart, so the chart cannot narrow the API into something
-  prettier.
-- **Defaults are static.** `image.tag` cannot be `{{ .Chart.AppVersion }}` —
-  inside the subchart that expression resolves against *app-template's* chart,
-  not this one. The default tag is written out literally and
-  `tests/chart_contract.py` fails the build if it drifts from `Chart.yaml`'s
-  `appVersion`.
-- **No IDE autocomplete.** app-template's `values.schema.json` describes the
-  *un-nested* shape, so pointing `$schema` at it from the root of this chart's
-  values would validate against the wrong structure. The comments in
-  `values.yaml` are the documentation instead.
+- **We own a translation layer.** `templates/_translate.tpl` is real code with
+  real bug surface, and it is the only thing standing between a user's values
+  and the rendered manifests.
+- **The surface is narrower than `app-template`'s.** Ingress, ServiceMonitor,
+  extra containers and sidecars are not reachable until they are designed in.
+  That is the trade, and it was made deliberately.
+- **A different flavour of coupling.** We depend on the library's *template* API
+  (`bjw-s.common.loader.all` and the context it expects), not on a documented
+  values interface. So `common` is pinned exactly, and the contract test runs on
+  every bump.
 
 ---
 
@@ -66,11 +82,17 @@ it has to keep on the image's behalf, because a volume mount breaks it:
 
 | Promise | Where it lives | Why |
 |---|---|---|
-| The installer runs as root | `initContainers.install-tools` (`runAsUser: 0`) | `/tools` is root-owned; that is what lets the agent mount it read-only |
-| The agent runs non-root | `containers.main` (`runAsUser: 65534`) | the image's posture, preserved |
-| The agent cannot write `/tools` | `persistence.tools.advancedMounts` | this is the one mount needing per-container modes: RW for the installer, `readOnly: true` for the agent |
+| The installer runs as root | `_translate.tpl` → `install-tools` (`runAsUser: 0`) | `/tools` is root-owned; that is what lets the agent mount it read-only |
+| The agent runs non-root | `_translate.tpl` → `main` (`runAsUser: 65534`) | the image's posture, preserved |
+| The agent cannot write `/tools` | `_translate.tpl` → `advancedMounts.main.{install-tools,main}` | the one mount needing per-container modes: RW for the installer, `readOnly: true` for the agent |
 | No `fsGroup` | nowhere — by omission | an fsGroup hands the agent's group write access to `/tools`; with a root-owned installer that is an escalation path into the toolchains the agent is about to execute |
-| The gateway binds all interfaces | `containers.main.env` (`ZEROCLAW_gateway__host`, `ZEROCLAW_gateway__allow_public_bind`) | the PVC at `/zeroclaw-data` shadows the image's baked `config.toml`, so the daemon otherwise falls back to `host = 127.0.0.1` — and the Service would front a port nothing outside the pod can dial |
+| The gateway binds all interfaces | derived from `gateway.service.enabled` | the PVC at `/zeroclaw-data` shadows the image's baked `config.toml`, so the daemon otherwise falls back to `host = 127.0.0.1` — and the Service would front a port nothing outside the pod can dial |
+
+Note the column: three of those live in the translation, not in configuration.
+There is no value a user can set that moves the ownership split, because getting
+it wrong is not a preference — a single mount mode for both containers is the
+failure mode where each container gets its own empty volume and the product
+silently has no toolchains.
 
 The last row is not an image promise; it is the chart undoing an accident it
 causes. See [The Service, and the bind it needs](#the-service-and-the-bind-it-needs).
@@ -87,7 +109,8 @@ there is no pod-level `securityContext` anywhere in this chart.
 ## Configuration
 
 `mise.toml` is the single source of truth for what the image installs, and the
-chart renders it into a ConfigMap mounted at `/config/mise.toml`.
+translation renders it into a ConfigMap mounted at `/config/mise.toml` from one
+values key: `tools`.
 
 **The chart ships no toolchain pins.** Nothing installs until you add a
 `[tools]` entry, which also means a fresh install is a valid install. Which
@@ -95,52 +118,83 @@ tools an agent needs is deployment policy; a version chosen by the chart would
 be wrong for someone.
 
 ```bash
-# from a file...
-helm upgrade --install nilchela charts/nilchela \
-  --set-file 'app-template.configMaps.config.data.mise\.toml=./mise.toml'
-
-# ...or inline
-helm upgrade --install nilchela charts/nilchela \
-  --set 'app-template.configMaps.config.data.mise\.toml=[tools]
-go = "1.27.1"'
+helm upgrade --install nilchela charts/nilchela --set tools.go=1.27.1
 ```
 
-The backslash is not optional: `mise.toml` is a single ConfigMap key, and the
-dot in it is not a path separator.
+```yaml
+tools:
+  go: "1.27.1"
+  rust:
+    version: "1.83.0"
+    profile: default          # a map renders as the [tools.rust] sub-table
+env:                          # extra environment, verbatim
+  ZEROCLAW_models__default: "..."
+```
+
+Pin exactly. A range makes `mise` resolve over the network on every start, which
+throws away the warm-volume fast path the retained `/tools` claim exists to
+provide.
 
 See [`mise.toml.example`](../../mise.toml.example) for the full reference —
-per-tool options, Rust targets and components, dist mirrors. The running
-container's environment is a function of that file: `[env]` is surfaced by
-`mise`/shims, while `mise`'s own bootstrap variables are baked into the image
-and must not be duplicated here.
+per-tool options, Rust targets and components, dist mirrors. Toolchain caches
+are redirected onto `/cache` by the translation (each tool has its own variable,
+so `mise` cannot infer them); disposable registries stay off the durable
+`/zeroclaw-data` volume.
 
 ### Overriding the rest
 
-Any app-template value works under `app-template:`. The ones you are most
-likely to want:
+The whole surface:
 
 ```yaml
-app-template:
-  controllers:
-    main:
-      containers:
-        main:
-          image:
-            tag: "0.0.3"        # must match Chart.yaml appVersion
-          resources: {}         # defaults: requests only, no limits
-  persistence:
-    data:
-      size: 50Gi
-    tools:
-      # adopt a claim you already have instead of creating one:
-      existingClaim: zeroclaw-tools
-      # ...and keep its advancedMounts block
+image:
+  repository: ghcr.io/infiniteprimates/nilchela
+  tag: "0.0.3"                # empty means .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  # no limits by default: this is a build host, and a limit turns a slow
+  # `cargo build` into an OOMKill
+
+storage:
+  tools: { size: 10Gi }        # or: existingClaim: zeroclaw-tools
+  cache: { size: 5Gi }
+  data:  { size: 10Gi }
+
+gateway:
+  service: { enabled: true, type: ClusterIP, port: 42617 }
+
+scheduling:                    # passed through to the pod spec
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
 ```
 
-All three PVCs are annotated `helm.sh/resource-policy: keep`, so
+All three created claims are annotated `helm.sh/resource-policy: keep`, so
 `helm uninstall` leaves them behind on purpose. Deleting an orphaned claim is a
 deliberate one-liner; recovering `/zeroclaw-data` after an accidental uninstall
-is not.
+is not. To reattach one after an uninstall, set `storage.<volume>.existingClaim`
+— and note that an adopted claim is left unannotated, because it is not ours to
+say what happens to it next.
+
+### What is deliberately not exposed
+
+- **Ingress, TLS, LoadBalancer.** Reaching the gateway from inside the cluster
+  is the useful default; publishing it is a decision this chart does not make.
+  If you add an Ingress, terminate authentication there — see the `/health` note.
+- **Probes.** See below. This is a values-level absence; adding probes is a
+  chart change, which is the point.
+- **Extra containers, volumes, sidecars, ServiceMonitor, `defaultPodOptions`.**
+  Reachable in `app-template`, withheld here: each one is a way to make the pod
+  model untrue while looking configured.
+- **A wholesale `app-template:` spread.** This is the one that matters most. It
+  is the obvious "compatibility" gesture and it would put every invariant back
+  into prose, because a passthrough the translation does not read is a
+  passthrough that cannot be checked.
+
+Power-user features are added as **relations**, not escape hatches. The Service
+is the worked example: `gateway.service.enabled` *derives* the bind override, so
+one switch cannot disagree with itself.
 
 ---
 
@@ -154,22 +208,19 @@ traffic. The chart renders one **ClusterIP** `Service` on `42617` in front of it
   this chart deliberately does not make. No Ingress, no TLS, no LoadBalancer.
 - **Ingress/TLS are the consumer's call** — and if you add them, terminate
   authentication there, because of the `/health` note below.
-- **The Service is only useful because the bind is fixed.** The chart's PVC at
+- **The Service is only useful because the bind is fixed, and the switch that
+  fixes it is the same switch that creates the Service.** The chart's PVC at
   `/zeroclaw-data` **shadows** the image's baked
   `/zeroclaw-data/.zeroclaw/config.toml`, so the daemon starts from schema
   defaults (`[gateway] host = 127.0.0.1`) and would listen on loopback only —
-  and the Service would front a port nothing outside the pod can dial. Two
-  schema-mirror env vars on the main container move it to `0.0.0.0`:
+  and the Service would front a port nothing outside the pod can dial. So
+  `gateway.service.enabled` also emits two schema-mirror env vars on the main
+  container:
 
   ```yaml
-  app-template:
-    controllers:
-      main:
-        containers:
-          main:
-            env:
-              ZEROCLAW_gateway__host: "0.0.0.0"
-              ZEROCLAW_gateway__allow_public_bind: "true"
+  env:
+    ZEROCLAW_gateway__host: "0.0.0.0"
+    ZEROCLAW_gateway__allow_public_bind: "true"
   ```
 
   `ZEROCLAW_<dotted path, . → __>` is applied *after* config load and masked
@@ -180,9 +231,9 @@ traffic. The chart renders one **ClusterIP** `Service` on `42617` in front of it
   interfaces" warning; it does **not** make the gateway public — the Service
   `type` does that, and it is `ClusterIP`.
 
-  Disable the Service (`app-template.service.main.enabled: false`) and drop
-  these two vars together: loopback plus `kubectl port-forward` is the tighter
-  posture, and a fixed bind with no Service is strictly worse than either.
+  Set `gateway.service.enabled: false` and both vars go with it: loopback plus
+  `kubectl port-forward` is the tighter posture, and a fixed bind with no
+  Service is strictly worse than either.
 
 > **`/health` is unauthenticated.** It returns `status`, `paired`,
 > `require_pairing` and a runtime health snapshot (component registry + uptime)
@@ -194,10 +245,10 @@ traffic. The chart renders one **ClusterIP** `Service` on `42617` in front of it
 
 ### No probes — still deliberate
 
-app-template adds none by default and this chart does not either. The gateway
-*does* have `/health`, so a probe is now possible — it was not, and older copies
-of this document said otherwise. What remains true is that neither probe is
-right for every consumer:
+The library adds none by default and this chart does not either. The gateway
+*does* have `/health`, so a probe is possible — it was not, and older copies of
+this document said otherwise. What remains true is that neither probe is right
+for every consumer:
 
 - Without a probe, the pod reports **Ready as soon as the container is
   Running**, so `helm install --wait` returning success says nothing about
@@ -208,20 +259,20 @@ right for every consumer:
 - Probes do not cover `initContainers`, so a cold `mise install` runs entirely
   before the main container exists.
 
-If you want one, a **readiness** HTTP probe on `/health` is the safe shape
-(`app-template.controllers.main.containers.main.probes.readiness`) — the
+If you want one, a **readiness** HTTP probe on `/health` is the safe shape — the
 unauthenticated endpoint that makes it a poor public URL is what makes it a good
-probe target.
+probe target. Adding it is a chart change on purpose: the default is a decision
+someone should have to make, not a key someone discovers.
 
 ---
 
-## Upgrading app-template
+## Upgrading the render library
 
-The dependency is pinned exactly, not ranged, because app-template's values
-schema is versioned and a minor bump can rename or restructure keys. Read
-[the upgrade notes](https://bjw-s-labs.github.io/helm-charts/docs/app-template/upgrades/)
-before bumping, change the version in `Chart.yaml`, rebuild the dependency, and
-run the contract test — it will catch a pod model that silently changed shape.
+`common` is pinned exactly, not ranged, because its template API is versioned
+and a minor bump can rename or restructure what the loader renders. To bump it:
+change the version in `Chart.yaml`, run `helm dependency build charts/nilchela`,
+and run `tests/chart_contract.py` against the new render. A pod model that
+silently changed shape is exactly what that test exists to catch.
 
-No `Chart.lock` is committed yet because it can only be generated by Helm.
-`helm dependency build` writes one; commit it with the next dependency change.
+`Chart.lock` is committed with the dependency; regenerate it with
+`helm dependency build`.

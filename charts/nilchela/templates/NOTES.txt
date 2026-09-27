@@ -1,21 +1,20 @@
 nilchela {{ .Chart.AppVersion }} -> release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
 
 Installed with NO toolchains, deliberately: the chart ships an empty [tools]
-table, because which tools an agent needs is your policy, not the chart's. The
-pod runs either way — it just has nothing on PATH yet.
+map, because which tools an agent needs is your policy, not the chart's. The pod
+runs either way — it just has nothing on PATH yet.
 
 Pin what you want:
 
-  # write a mise.toml with a [tools] section (see mise.toml.example), then:
-  helm upgrade {{ .Release.Name }} <chart> \
-    --set-file 'app-template.configMaps.config.data.mise\.toml=./mise.toml'
+  # one tool, one key
+  helm upgrade {{ .Release.Name }} <chart> --reuse-values --set tools.go=1.27.1
 
-  # or override the whole ConfigMap key by key:
-  helm upgrade {{ .Release.Name }} <chart> \
-    --set 'app-template.configMaps.config.data.mise\.toml=...'
+  # or a tool with options (see mise.toml.example for the full reference)
+  helm upgrade {{ .Release.Name }} <chart> --reuse-values \
+    --set tools.rust.version=1.83.0 --set tools.rust.profile=default
 
-The backslashes are required — `mise.toml` is one ConfigMap key, and the dot in
-it is not a path separator.
+`tools` is rendered into the chart's mise.toml, so there is no ConfigMap key to
+escape and no `--set-file` dance.
 
 First start installs the pinned set into /tools, which can take a few minutes on
 a cold volume and is near-instant afterwards:
@@ -23,17 +22,24 @@ a cold volume and is near-instant afterwards:
   kubectl -n {{ .Release.Namespace }} get pods -w
   kubectl -n {{ .Release.Namespace }} logs -f <pod> -c install-tools
 
-Bumping a tool is a mise.toml edit and a roll — the image never rebuilds.
+Bumping a tool is a values change and a roll — the image never rebuilds.
 
-The ZeroClaw gateway is fronted by a ClusterIP Service — cluster-internal only,
-no Ingress and no TLS. With the documented release name the Service is
+{{- if ((.Values.gateway).service).enabled }}
+
+The ZeroClaw gateway is fronted by a {{ ((.Values.gateway).service).type | default "ClusterIP" }} Service — cluster-internal
+only, no Ingress and no TLS. With the documented release name the Service is
 `{{ .Release.Name }}`:
 
   kubectl -n {{ .Release.Namespace }} get svc {{ .Release.Name }}
-  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }} 42617:42617
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }} {{ ((.Values.gateway).service).port | default 42617 }}:{{ ((.Values.gateway).service).port | default 42617 }}
 
-(Any other release name yields `<release>-nilchela`; `kubectl get svc` is the
-authority.)
+{{- else }}
+
+No Service is rendered and the daemon listens on loopback only:
+
+  kubectl -n {{ .Release.Namespace }} port-forward {{ .Release.Name }}-0 42617:42617
+
+{{- end }}
 
 /health IS UNAUTHENTICATED. It reports pairing state (`paired`,
 `require_pairing`) and a runtime health snapshot. That is acceptable from inside
@@ -45,3 +51,7 @@ so "install succeeded" and "the agent works" are two different facts, and a
 wedged agent is not restarted automatically. Watch the logs:
 
   kubectl -n {{ .Release.Namespace }} logs -f <pod> -c main
+
+The volumes are retained, so `helm uninstall` does not delete them. A plain
+reinstall afterwards fails on the existing claims — adopt them
+(storage.<volume>.existingClaim) or delete them and accept the re-download.

@@ -2,13 +2,15 @@
 """Contract test for the nilchela chart — asserts the invariants the chart
 exists to encode, against a live `helm template` render.
 
-Why this exists: the chart is a wrapper, so most of its behaviour is
-app-template's. What is *ours* is the pod model — root installer, non-root
-agent, read-only /tools, split ownership, no fsGroup — the gateway's exposure
-posture (ClusterIP Service on the gateway port, bound off loopback, no probes),
-plus the assumption that app-template resolves `advancedMounts` for an
-initContainer by key. Neither the Helm linter nor app-template's own values
-schema can check any of that. This can, on every PR.
+Why this exists: the chart delegates all rendering to the bjw-s `common`
+library, so what is *ours* is the translation (`templates/_translate.tpl`) and
+the pod model it emits — root installer, non-root agent, read-only /tools, split
+ownership, no fsGroup — plus the gateway's exposure posture (ClusterIP Service
+on the gateway port, bound off loopback, no probes). Asserting the translation
+against *real output* rather than against our own values.yaml is the point: a
+faithful translation is a claim about what the library renders, and the only
+place that claim can be checked is here. This runs on every PR and on every
+`common` bump.
 
 Deliberately dependency-light (PyYAML only) and read-only: it renders nothing,
 it inspects what Helm produced.
@@ -97,15 +99,7 @@ def read_default_tag(chart_dir: str) -> tuple[str | None, str | None]:
         app_version = (yaml.safe_load(handle) or {}).get("appVersion")
     with open(f"{chart_dir}/values.yaml", encoding="utf-8") as handle:
         values = yaml.safe_load(handle) or {}
-    tag = (
-        values.get("app-template", {})
-        .get("controllers", {})
-        .get("main", {})
-        .get("containers", {})
-        .get("main", {})
-        .get("image", {})
-        .get("tag")
-    )
+    tag = (values.get("image") or {}).get("tag")
     return (
         str(app_version) if app_version is not None else None,
         str(tag) if tag is not None else None,
@@ -239,8 +233,12 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
             (installer.get("command") or [None])[0] == "mise"
             and "install" in (installer.get("args") or []),
         )
-        # This is the load-bearing app-template assumption: advancedMounts
-        # addresses an initContainer by key.
+        # This is the load-bearing translation assumption: the library resolves
+        # `advancedMounts.main.<initContainer-key>`, so an initContainer can be
+        # given a different mount mode on the same volume as the main container.
+        # If that ever stops being true, /tools ends up root-writable by the
+        # agent (or empty for the installer) and the product silently has no
+        # toolchains.
         tools_mount = mount_for(installer, TOOLS_PATH)
         checker.check(
             f"install-tools gets a writable {TOOLS_PATH} mount (advancedMounts "
@@ -331,12 +329,19 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
                 f"got {requests.get('storage')!r}",
             )
 
-    # -- drift guard: the chart's appVersion is the image tag it deploys.
+    # -- drift guard: appVersion is the image this chart deploys by default. An
+    # empty values `image.tag` means "inherit it", so what must not drift is the
+    # *rendered* tag, not the raw values entry — comparing the two directly would
+    # fail on the documented default. A values-pinned tag is the user's choice
+    # and is asserted to render through unmodified.
     app_version, default_tag = read_default_tag(chart_dir)
+    rendered_image = (main or {}).get("image") or ""
+    last_path_element = rendered_image.rsplit("/", 1)[-1]
+    rendered_tag = last_path_element.rsplit(":", 1)[-1] if ":" in last_path_element else ""
     checker.check(
-        "Chart.yaml appVersion matches the default image tag",
-        app_version is not None and app_version == default_tag,
-        f"appVersion={app_version!r} image.tag={default_tag!r}",
+        "the rendered main image tag tracks Chart.yaml appVersion",
+        rendered_tag == (app_version if default_tag == "" else default_tag),
+        f"appVersion={app_version!r} values image.tag={default_tag!r} rendered={rendered_image!r}",
     )
 
 

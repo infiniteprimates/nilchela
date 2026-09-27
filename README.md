@@ -55,9 +55,7 @@ Because the toolchains live in a volume rather than the image, rebuilding the im
 
 ### Kubernetes (Helm)
 
-This repo ships a reference chart at [`charts/nilchela`](charts/nilchela) — a thin wrapper around the [bjw-s `app-template`](https://bjw-s-labs.github.io/helm-charts/docs/app-template/) chart. It renders the StatefulSet, the three volumes, the `mise.toml` ConfigMap, and the ownership model described above.
-
-Run the following from the repository root — the trailing `.` is the build context.
+This repo ships a reference chart at [`charts/nilchela`](charts/nilchela) — a nilchela-native values surface rendered by the [bjw-s `common`](https://bjw-s-labs.github.io/helm-charts/) library chart. It renders the StatefulSet, the three volumes, the `mise.toml` ConfigMap, and the ownership model described above. You never write `app-template` values: the keys are nilchela's own (`image.tag`, `tools.<name>`, `storage.tools.size`), and a key the chart does not recognise fails the render rather than being silently ignored.
 
 ```bash
 git clone https://github.com/infiniteprimates/nilchela.git
@@ -71,7 +69,7 @@ The chart installs **no toolchains** — nothing is pinned until you say so. Pin
 
 ```bash
 helm upgrade nilchela charts/nilchela \
-  --set-file 'app-template.configMaps.config.data.mise\.toml=./mise.toml'
+  --set tools.go=1.27.1 --set tools.node=22.11.0
 ```
 
 Use the release name `nilchela` and you get StatefulSet `nilchela` with PVCs `nilchela-tools`, `nilchela-cache`, and `nilchela-data`. Requires Kubernetes `>= 1.28` and Helm 3.x.
