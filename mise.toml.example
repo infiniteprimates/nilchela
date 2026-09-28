@@ -47,7 +47,7 @@ gh       = "<version>"                        # GitHub CLI
 # Surfaced by mise via `mise env`/shims; kept OUT of the Dockerfile so the
 # image stays decoupled from the toolchain set.
 #
-# In the Helm chart this whole section is the `toolEnv` values key — the chart
+# In the Helm chart this whole section is the `mise.env` values key — the chart
 # renders it into the [env] table below and ships no defaults, because the
 # toolchain set (and therefore the variables needed) is deployment policy.
 #

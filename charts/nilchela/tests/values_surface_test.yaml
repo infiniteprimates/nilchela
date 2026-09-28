@@ -228,7 +228,7 @@ tests:
             value: some/model
 
   # ---------------------------------------------------------------------------
-  # mise.toml ConfigMap -- tools and toolEnv are separate tables
+  # mise.toml ConfigMap -- mise.tools and mise.env are separate tables
   # ---------------------------------------------------------------------------
   - it: renders an empty [tools] table and no [env] table by default
     documentSelector:
@@ -244,7 +244,7 @@ tests:
 
   - it: renders a pinned tool into [tools]
     set:
-      tools.go: "1.27.1"
+      mise.tools.go: "1.27.1"
     documentSelector:
       path: kind
       value: ConfigMap
@@ -255,7 +255,7 @@ tests:
 
   - it: renders a nested tool map as a TOML sub-table
     set:
-      tools.rust.version: "1.83.0"
+      mise.tools.rust.version: "1.83.0"
     documentSelector:
       path: kind
       value: ConfigMap
@@ -267,9 +267,9 @@ tests:
           path: data["mise.toml"]
           pattern: 'version = "1\.83\.0"'
 
-  - it: renders toolEnv into the mise.toml [env] table
+  - it: renders mise.env into the mise.toml [env] table
     set:
-      toolEnv.CARGO_HOME: /cache/cargo
+      mise.env.CARGO_HOME: /cache/cargo
     documentSelector:
       path: kind
       value: ConfigMap

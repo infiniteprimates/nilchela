@@ -21,7 +21,7 @@ Usage:
     python3 charts/nilchela/tests/chart_contract.py /tmp/rendered.yaml \
         --chart-dir charts/nilchela --release-name nilchela
 
-Add --toolenv-render to also assert the `toolEnv` -> `[env]` mapping against a
+Add --toolenv-render to also assert the `mise.env` -> `[env]` mapping against a
 second render made with toolchain env set (see check_toolenv), and
 --probes-render for a third with a probe enabled and the Service disabled
 (see check_probes).
@@ -395,29 +395,29 @@ def mise_toml_from(configmaps: list[dict]) -> str:
 
 
 def check_toolenv(manifests: list[dict], checker: Checker) -> None:
-    """The `toolEnv` -> `mise.toml` `[env]` mapping, against a render made with
+    """The `mise.env` -> `mise.toml` `[env]` mapping, against a render made with
     toolchain env set:
 
         helm template nilchela charts/nilchela \
-            --set toolEnv.CARGO_HOME=/cache/cargo \
-            --set toolEnv.GOCACHE=/cache/go-build \
+            --set mise.env.CARGO_HOME=/cache/cargo \
+            --set mise.env.GOCACHE=/cache/go-build \
             > /tmp/toolenv.yaml
     """
     mise_toml = mise_toml_from(by_kind(manifests, "ConfigMap"))
     try:
         parsed = tomllib.loads(mise_toml)
     except tomllib.TOMLDecodeError as error:
-        checker.check("toolEnv renders a parseable mise.toml", False, str(error))
+        checker.check("mise.env renders a parseable mise.toml", False, str(error))
         return
-    checker.check("toolEnv renders a parseable mise.toml", True)
+    checker.check("mise.env renders a parseable mise.toml", True)
     checker.check(
-        "toolEnv renders as a mise.toml [env] table",
+        "mise.env renders as a mise.toml [env] table",
         isinstance(parsed.get("env"), dict),
         f"mise.toml={mise_toml!r}",
     )
     for name, value in (("CARGO_HOME", "/cache/cargo"), ("GOCACHE", "/cache/go-build")):
         checker.check(
-            f"toolEnv {name} renders into [env] as a string",
+            f"mise.env {name} renders into [env] as a string",
             (parsed.get("env") or {}).get(name) == value,
         )
 
@@ -486,7 +486,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("rendered", help="output of `helm template`")
     parser.add_argument(
         "--toolenv-render",
-        help="a second render made with `toolEnv` set, for the [env] mapping",
+        help="a second render made with `mise.env` set, for the [env] mapping",
     )
     parser.add_argument(
         "--probes-render",
@@ -500,7 +500,7 @@ def main(argv: list[str]) -> int:
     checker = Checker()
     run_checks(load_manifests(args.rendered), args.chart_dir, checker)
     if args.toolenv_render:
-        print(f"toolEnv mapping: {args.toolenv_render}\n")
+        print(f"mise.env mapping: {args.toolenv_render}\n")
         check_toolenv(load_manifests(args.toolenv_render), checker)
     if args.probes_render:
         print(f"probes: {args.probes_render}\n")

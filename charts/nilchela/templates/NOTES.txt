@@ -7,14 +7,14 @@ runs either way — it just has nothing on PATH yet.
 Pin what you want:
 
   # one tool, one key
-  helm upgrade {{ .Release.Name }} <chart> --reuse-values --set tools.go=1.27.1
+  helm upgrade {{ .Release.Name }} <chart> --reuse-values --set mise.tools.go=1.27.1
 
   # or a tool with options (see mise.toml.example for the full reference)
   helm upgrade {{ .Release.Name }} <chart> --reuse-values \
-    --set tools.rust.version=1.83.0 --set tools.rust.profile=default
+    --set mise.tools.rust.version=1.83.0 --set mise.tools.rust.profile=default
 
-`tools` is rendered into the chart's mise.toml, so there is no ConfigMap key to
-escape and no `--set-file` dance.
+`mise.tools` is rendered into the chart's mise.toml, so there is no ConfigMap key
+to escape and no `--set-file` dance.
 
 First start installs the pinned set into /tools, which can take a few minutes on
 a cold volume and is near-instant afterwards:
@@ -25,17 +25,17 @@ a cold volume and is near-instant afterwards:
 Bumping a tool is a values change and a roll — the image never rebuilds.
 
 Toolchain env is the second half of that setup, and it is a separate key because
-it is a separate decision. `toolEnv` is rendered into the chart's mise.toml as
+it is a separate decision. `mise.env` is rendered into the chart's mise.toml as
 its [env] table, which mise applies to the daemon and to everything the daemon
 spawns:
 
   helm upgrade {{ .Release.Name }} <chart> --reuse-values \
-    --set toolEnv.CARGO_HOME=/cache/cargo \
-    --set toolEnv.GOCACHE=/cache/go-build
+    --set mise.env.CARGO_HOME=/cache/cargo \
+    --set mise.env.GOCACHE=/cache/go-build
 
 Every tool has its own cache variable and mise cannot infer them, so this map is
-empty by default for the same reason `tools` is: the variables follow from the
-tools you pinned. Pointing them at /cache (the {{ ((.Values.storage).cache).size | default "5Gi" }} claim) keeps disposable
+empty by default for the same reason `mise.tools` is: the variables follow from
+the tools you pinned. Pointing them at /cache (the {{ ((.Values.storage).cache).size | default "5Gi" }} claim) keeps disposable
 registries off the durable /zeroclaw-data volume — the per-tool list is in the
 chart README, and in mise.toml.example section 3.
 
@@ -88,18 +88,32 @@ separate auth layer to add here: pairing is the mechanism, and it is a bearer
 token over plain HTTP, because this chart terminates no TLS. Reach the UI from
 inside the cluster or over a VPN.
 
-Probes are OFF by default, and configurable. With none enabled, Ready means only
-that the container started, and nothing restarts a wedged daemon:
+Readiness AND liveness ship on, against the gateway's /health. Readiness is what
+makes Ready mean anything — with no probe at all, the pod is Ready the instant the
+container is Running, so `helm install --wait` succeeding says nothing. Liveness
+restarts a daemon that has stopped answering.
+
+The budget is the judgement call, and the default is deliberately loose: six
+failures x 20s is two minutes of unbroken silence. /health is served by the same
+process that supervises the agent's work, so on a pod compressing a `cargo build`
+the handler can be scheduled late with nothing broken — and a probe that restarts
+a healthy-but-busy pod is worse than no probe. Both are configurable — if your daemon is not also a build host, a tighter budget
+is reasonable:
 
   helm upgrade {{ .Release.Name }} <chart> --reuse-values \
-    --set probes.readiness.enabled=true
+    --set probes.liveness.spec.failureThreshold=3 \
+    --set probes.liveness.spec.periodSeconds=10
 
-Enabling one also fixes the bind, exactly as the Service does: the probe comes
+To make liveness mean only "the listener is gone", set
+`probes.liveness.type: TCP` — the kernel answers a TCP probe from the accept
+queue, so it survives handler starvation, at the cost of never noticing a wedged
+handler. No startup probe ships: the slow part of a cold install is an init
+container, and probes do not cover those.
+
+Enabling a probe also fixes the bind, exactly as the Service does: a probe comes
 from outside the container and targets the pod's address, not loopback, so a
-loopback-bound daemon fails its own probe. A readiness probe on /health is the
-shape worth having. Liveness is the sharper edge — it restarts a pod that may be
-mid-turn, and a daemon wedged on a model call still answers /health, so liveness
-will not catch the thing you were hoping it would.
+loopback-bound daemon would fail its own probe — and liveness would then restart a
+pod that was working.
 
 Either way, watch the logs — they are still the only signal that the agent itself
 is working:

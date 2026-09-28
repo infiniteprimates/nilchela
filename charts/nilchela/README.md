@@ -122,7 +122,10 @@ value) under `helm unittest`, which needs no cluster.
 
 `mise.toml` is the single source of truth for what the image installs, and the
 translation renders it into a ConfigMap mounted at `/config/mise.toml` from one
-values key: `tools`.
+values key: `mise`. It is named after the file it produces, and keyed the way that
+file is written — `mise.tools` is its `[tools]` table, `mise.env` is its `[env]`
+table. (The top-level `env` further down is a different thing: the *container's*
+environment, set by Kubernetes.)
 
 **The chart ships no toolchain pins.** Nothing installs until you add a
 `[tools]` entry, which also means a fresh install is a valid install. Which
@@ -130,22 +133,23 @@ tools an agent needs is deployment policy; a version chosen by the chart would
 be wrong for someone.
 
 ```bash
-helm upgrade --install nilchela charts/nilchela --set tools.go=1.27.1
+helm upgrade --install nilchela charts/nilchela --set mise.tools.go=1.27.1
 ```
 
 ```yaml
-tools:
-  go: "1.27.1"
-  rust:
-    version: "1.83.0"
-    profile: default          # a map renders as the [tools.rust] sub-table
-toolEnv:                      # rendered into mise.toml's [env]
-  CARGO_HOME: /cache/cargo        # Rust — crate registry + build artifacts
-  GOMODCACHE: /cache/go/pkg/mod   # Go — module cache
-  GOCACHE: /cache/go-build        # Go — build cache
-  NPM_CONFIG_CACHE: /cache/npm    # Node — npm cache
-  UV_CACHE_DIR: /cache/uv         # Python — uv cache
-  PIP_CACHE_DIR: /cache/pip       # Python — pip cache
+mise:
+  tools:
+    go: "1.27.1"
+    rust:
+      version: "1.83.0"
+      profile: default        # a map renders as the [tools.rust] sub-table
+  env:                        # rendered into mise.toml's [env]
+    CARGO_HOME: /cache/cargo        # Rust — crate registry + build artifacts
+    GOMODCACHE: /cache/go/pkg/mod   # Go — module cache
+    GOCACHE: /cache/go-build        # Go — build cache
+    NPM_CONFIG_CACHE: /cache/npm    # Node — npm cache
+    UV_CACHE_DIR: /cache/uv         # Python — uv cache
+    PIP_CACHE_DIR: /cache/pip       # Python — pip cache
 env:                          # pod-level env for the daemon, verbatim
   ZEROCLAW_models__default: "..."
 ```
@@ -164,14 +168,14 @@ per-tool options, Rust targets and components, dist mirrors.
 Toolchain environment is declared the same way, and for the same reason. The
 cache variables are per tool (`CARGO_HOME`, `GOMODCACHE`, `NPM_CONFIG_CACHE`,
 `UV_CACHE_DIR`, …), mise cannot infer them, and which ones you need follows from
-which tools you installed — so `toolEnv` is empty by default and the chart ships
+which tools you installed — so `mise.env` is empty by default and the chart ships
 no defaults for it either. What you put there is rendered into `mise.toml`'s
 `[env]` table, which the image's `mise exec` entrypoint applies to the daemon and
 everything it spawns; `mise env` reports the same values. Pointing those
 variables at `/cache` is what keeps disposable registries off the durable
 `/zeroclaw-data` volume.
 
-Do not restate the image's own mise bootstrap variables in `toolEnv`
+Do not restate the image's own mise bootstrap variables in `mise.env`
 (`MISE_DATA_DIR`, `MISE_RUSTUP_HOME`, `MISE_CACHE_DIR`, …). mise reads those
 before `mise.toml` exists; restating them here desynchronises the paths it
 already installed into.
@@ -185,6 +189,12 @@ image:
   repository: ghcr.io/infiniteprimates/nilchela
   tag: "0.0.3"                # empty means .Chart.AppVersion
   pullPolicy: IfNotPresent
+
+mise:                          # rendered into the chart's mise.toml
+  tools: {}                    # pin exactly, no ranges
+  env: {}                      # per-tool cache variables, see Configuration
+
+env: {}                        # the container's own env, verbatim
 
 resources:
   requests: { cpu: 100m, memory: 512Mi }

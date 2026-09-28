@@ -21,8 +21,8 @@
 {{- $svcEnabled := ternary $svc.enabled true (hasKey $svc "enabled") -}}
 {{- $userEnv := $v.env | default dict -}}
 {{- $storage := $v.storage | default dict -}}
-{{- $tools := $v.tools | default dict -}}
-{{- $toolEnv := $v.toolEnv | default dict -}}
+{{- $tools := ($v.mise | default dict).tools | default dict -}}
+{{- $miseEnv := ($v.mise | default dict).env | default dict -}}
 {{- $sched := $v.scheduling | default dict -}}
 {{- $res := $v.resources | default dict -}}
 {{- $repo := $image.repository | default "ghcr.io/infiniteprimates/nilchela" -}}
@@ -201,7 +201,7 @@ configMaps:
   config:
     data:
       mise.toml: |
-        # Rendered from .Values.tools — pin exactly, no ranges.
+        # Rendered from .Values.mise.tools — pin exactly, no ranges.
         [tools]
         {{- range $k, $val := $tools }}
         {{- if not (kindIs "map" $val) }}
@@ -217,10 +217,10 @@ configMaps:
         {{- end }}
         {{- end }}
 
-        {{- with $toolEnv }}
+        {{- with $miseEnv }}
 
-        # Toolchain runtime env, rendered from .Values.toolEnv. Each tool uses its own
-        # cache-dir variable, so mise cannot infer them; they are declared per
+        # Toolchain runtime env, rendered from .Values.mise.env. Each tool uses its
+        # own cache-dir variable, so mise cannot infer them; they are declared per
         # deployment rather than pinned here, because the toolchain set is.
         [env]
         {{- range $k, $val := . }}
