@@ -102,7 +102,9 @@ Because a pod-level `runAsNonRoot: true` combined with a container-level
 there is no pod-level `securityContext` anywhere in this chart.
 
 `tests/chart_contract.py` asserts every row of that table against a real
-`helm template` render, on every PR.
+`helm template` render, on every PR. `tests/values_surface_test.yaml` covers the
+translation's own template logic (which conditional or default produced each
+value) under `helm unittest`, which needs no cluster.
 
 ---
 
