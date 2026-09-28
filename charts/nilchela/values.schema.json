@@ -50,7 +50,7 @@
     },
     "probes": {
       "type": "object",
-      "description": "Liveness/readiness/startup probes. Off by default; each is enabled individually and all three share one port default.",
+      "description": "Liveness/readiness/startup probes. Readiness and liveness ship on, startup off; each is enabled individually and all three share one port default.",
       "additionalProperties": false,
       "properties": {
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },

@@ -218,10 +218,10 @@ say what happens to it next.
   is the useful default; publishing it is a decision this chart does not make.
   If you add an Ingress, the `/health` route is the one to think about — see
   *The Service, and the bind it needs*.
-- **Probes are opt-in, and configured here.** `probes.liveness/readiness/startup`
-  each take `enabled`, plus `type`, `path`, `port` and a raw k8s `spec`. All
-  three are **off by default** — see *Probes* below for why, and for what changes
-  when you turn one on.
+- **Probes are the consumer's budget, and configured here.** `probes.readiness`
+  and `probes.liveness` ship on; all three take `enabled`, plus `type`, `path`,
+  `port` and a raw k8s `spec`. See *Probes* below for what each one does to the
+  pod — and for where it is the wrong tool.
 - **Extra containers, volumes, sidecars, ServiceMonitor, `defaultPodOptions`.**
   Reachable in `app-template`, withheld here: each one is a way to make the pod
   model untrue while looking configured.
@@ -298,9 +298,10 @@ traffic. The chart renders one **ClusterIP** `Service` on `42617` in front of it
 > token over plain HTTP, because this chart terminates no TLS. Reach the UI from
 > inside the cluster or over a VPN.
 
-### Probes — off by default, configurable
+### Probes — on by default, budget exposed
 
-Probes are **disabled by default and fully configurable through values**:
+A daemon that cannot answer `/health` is not doing its job, so the default
+install carries a readiness and a liveness probe against it:
 
 ```yaml
 probes:
@@ -309,19 +310,39 @@ probes:
     enabled: true
     # path: /health      # default
     # type: HTTP         # default; HTTPS, TCP, GRPC, AUTO also accepted
-    spec: { initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 2 }
+    spec: { initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3 }
   liveness:
-    enabled: false
-    # spec: { initialDelaySeconds: 30, periodSeconds: 20, timeoutSeconds: 3 }
+    enabled: true
+    spec: { initialDelaySeconds: 30, periodSeconds: 20, timeoutSeconds: 5, failureThreshold: 6 }
   startup:
     enabled: false
 ```
 
-Why the default is off: without a probe the pod reports **Ready as soon as the
-container is Running**, so `helm install --wait` returning success says nothing
-about whether the agent works. A liveness probe is the sharper edge — it restarts
-a pet pod, which drops in-flight agent work, and an agent wedged on a model call
-still answers liveness. Off is the conservative default; on is one key away.
+What each one does to this pod, and where it is the wrong tool:
+
+| Probe | On failure | Good for | Wrong for |
+|---|---|---|---|
+| readiness | the pod leaves the Service endpoints; nothing restarts | any consumer whose clients reach the pod through the Service | `kubectl port-forward`, which ignores readiness — the probe is not on that path at all; and a single replica has nowhere to move traffic to, so unready means refused connections instead of a readable error |
+| liveness | the container restarts | a daemon that has stopped serving: wedged event loop, dead listener, a process that will not recover on its own | a container that is merely *busy*. This one runs the agent's builds, and the kubelet's probe shares the CPU with them |
+| startup | restarts the container unless it passes once, then never runs again | a consumer whose daemon startup is genuinely slow | here: `mise install` runs in an *init container*, so the main container's boot is short and `initialDelaySeconds` covers it |
+
+**Why liveness is on, and why its budget is loose.** Restarting is the right
+answer to a gateway that has stopped answering: while it is not answering,
+nothing is progressing that a restart would interrupt. What is *not* safe is a
+tight budget. `/health` is served by the same process that supervises the agent's
+work, so on a pod compressing a `cargo build` that handler can be scheduled late
+without anything being broken — and a probe that restarts a healthy-but-busy pod
+is worse than no probe, because the restart interrupts the build and the rebuild
+runs under the same load. Six failures × 20s is two minutes of unbroken silence:
+a wedged daemon, not a busy one. To narrow it to "the listener is gone", set
+`probes.liveness.type: TCP` — the kernel answers a TCP probe from the accept
+queue, so it survives handler starvation, and you give up noticing a wedged
+handler in exchange.
+
+**Readiness is the cheap one.** It cannot destroy work, and it is what makes
+`helm install --wait` mean anything: with no probe, the pod reports Ready the
+moment the container is Running. Its cost is the blackhole above — one replica,
+no other endpoint to serve.
 
 **Enabling any probe also fixes the bind.** This is the part worth knowing: a
 probe is issued by the kubelet from outside the container and targets the pod's
@@ -339,12 +360,14 @@ Shape notes:
   makes a poor public URL and a good probe target.
 - `spec` is a raw k8s probe spec merged over the derived probe, so
   `initialDelaySeconds` / `periodSeconds` / `timeoutSeconds` / `failureThreshold` /
-  `successThreshold` all work. The chart bakes in no timings of its own.
+  `successThreshold` all work. The timings above are the chart's judgement, not a
+  k8s default — every one of them is yours to move.
 - Probes do not cover `initContainers`, so a cold `mise install` runs entirely
-  before the main container exists — it cannot be what your probe waits for.
-- `tests/chart_contract.py` asserts both ends: the default render has no probes,
-  and a render with `probes.readiness.enabled=true` plus
-  `gateway.service.enabled=false` produces a probe *and* the off-loopback bind.
+  before the main container exists — it cannot be what your probe waits for, and
+  it is why no startup probe ships.
+- `tests/chart_contract.py` asserts both ends: the default render carries
+  readiness and liveness on `/health` and no startup probe, and a render with
+  `gateway.service.enabled=false` still emits the off-loopback bind.
 
 ---
 

@@ -131,17 +131,20 @@ tests:
   # ---------------------------------------------------------------------------
   # probes -> probe + the same derived bind
   # ---------------------------------------------------------------------------
-  - it: renders no probes by default
+  - it: renders readiness and liveness by default, and no startup probe
     documentSelector:
       path: kind
       value: StatefulSet
     asserts:
-      - isNull:
+      - isNotNull:
+          path: spec.template.spec.containers[0].readinessProbe
+      - isNotNull:
           path: spec.template.spec.containers[0].livenessProbe
       - isNull:
-          path: spec.template.spec.containers[0].readinessProbe
-      - isNull:
           path: spec.template.spec.containers[0].startupProbe
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
 
   - it: renders the derived readiness probe on /health
     set:
@@ -163,10 +166,9 @@ tests:
   # A probe is issued by the kubelet against the POD address, not loopback, so an
   # enabled probe has to fix the bind even when the Service is off. This is the
   # combination where getting it wrong is invisible.
-  - it: restores the bind env when a probe is enabled and the Service is not
+  - it: keeps the bind env when the probes are on and the Service is not
     set:
       gateway.service.enabled: false
-      probes.readiness.enabled: true
     documentSelector:
       path: kind
       value: StatefulSet
@@ -181,8 +183,7 @@ tests:
 
   - it: merges a raw probe spec over the derived probe
     set:
-      probes.liveness.enabled: true
-      probes.liveness.spec.initialDelaySeconds: 30
+      probes.liveness.spec.initialDelaySeconds: 45
       probes.liveness.spec.failureThreshold: 5
     documentSelector:
       path: kind
@@ -190,7 +191,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].livenessProbe.initialDelaySeconds
-          value: 30
+          value: 45
       - equal:
           path: spec.template.spec.containers[0].livenessProbe.failureThreshold
           value: 5

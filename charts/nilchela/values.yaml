@@ -101,23 +101,43 @@ storage:
 # daemon fails its own probe — and a failing liveness probe then restarts a pod
 # that was working. One switch, not two settings to keep in agreement by hand.
 #
-# `spec` is a raw k8s probe spec, merged over the derived probe. The daemon
-# answers /health as soon as the gateway is up, and the toolchain install runs in
-# an init container, so it does not delay this container; starting points:
-#   readiness: initialDelaySeconds: 5,  periodSeconds: 10, timeoutSeconds: 2
-#   liveness:  initialDelaySeconds: 30, periodSeconds: 20, timeoutSeconds: 3
-#   startup:   set one only if your daemon startup is genuinely slow
+# Readiness and liveness ship ON, because the failure they answer is the one worth
+# acting on: a daemon that cannot serve /health at all. While it is not answering
+# nothing is progressing that a restart would interrupt.
+#
+# What is not safe is a tight budget. /health is served by the same process that
+# supervises the agent's work, so on a pod compressing a `cargo build` the handler
+# can be scheduled late without anything being broken — a probe that restarts a
+# healthy-but-busy pod is worse than no probe, because it interrupts the build and
+# the rebuild runs under the same load. 6 x 20s of unbroken silence is a wedged
+# daemon, not a busy one. `probes.liveness.type: TCP` narrows it to "the listener
+# is gone" (the kernel answers from the accept queue, so it survives handler
+# starvation) at the cost of not noticing a wedged handler.
+#
+# The install runs in an *init container*, so a cold `mise install` is done before
+# this container exists and the daemon's own boot is short: no startup probe by
+# default. Set one only if your daemon startup is genuinely slow.
+#
+# `spec` is a raw k8s probe spec, merged over the derived probe.
 probes:
   # Shared default for all three; each probe may override it, as well as `path`.
   port: 42617
   liveness:
-    enabled: false
+    enabled: true
     # path: /health
     # type: TCP
-    # spec: { initialDelaySeconds: 30, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3 }
+    spec:
+      initialDelaySeconds: 30
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 6
   readiness:
-    enabled: false
-    # spec: { initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 2 }
+    enabled: true
+    spec:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
   startup:
     enabled: false
     # spec: { failureThreshold: 30, periodSeconds: 10 }

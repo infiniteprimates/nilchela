@@ -6,7 +6,8 @@ Why this exists: the chart delegates all rendering to the bjw-s `common`
 library, so what is *ours* is the translation (`templates/_translate.tpl`) and
 the pod model it emits — root installer, non-root agent, read-only /tools, split
 ownership, no fsGroup — plus the gateway's exposure posture (ClusterIP Service
-on the gateway port, bound off loopback, probes off by default). Asserting the translation
+on the gateway port, bound off loopback, readiness and liveness probes on the
+daemon's health route). Asserting the translation
 against *real output* rather than against our own values.yaml is the point: a
 faithful translation is a claim about what the library renders, and the only
 place that claim can be checked is here. This runs on every PR and on every
@@ -215,16 +216,35 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
             f"ZEROCLAW_gateway__allow_public_bind={allow_public!r}",
         )
 
-        # -- still no probes by default. Probes are the consumer's choice (see
-        # values.yaml `probes`); what must not happen is one arriving *enabled*
-        # in the default install, where it would restart a pet pod and drop
-        # in-flight agent work without anyone opting into it. The enabled path is
-        # asserted in check_probes, against a render that turns one on.
+        # -- the default probe set. Readiness and liveness ship on, because a
+        # daemon that cannot serve /health is the one failure a restart fixes;
+        # both target the health route, and neither is a startup probe (the slow
+        # part of a cold install is an init container). The budget is asserted in
+        # values_surface_test.yaml; what matters here is the shape.
+        readiness_probe = main.get("readinessProbe") or {}
+        liveness_probe = main.get("livenessProbe") or {}
         checker.check(
-            "main container renders no probes by default (restart stays opt-in)",
-            not main.get("livenessProbe")
-            and not main.get("readinessProbe")
-            and not main.get("startupProbe"),
+            "main container carries readiness and liveness probes by default",
+            bool(readiness_probe) and bool(liveness_probe),
+            f"readiness={readiness_probe!r} liveness={liveness_probe!r}",
+        )
+        checker.check(
+            "both default probes target the gateway's /health",
+            (readiness_probe.get("httpGet") or {}).get("path") == "/health"
+            and (liveness_probe.get("httpGet") or {}).get("path") == "/health",
+            f"{readiness_probe.get('httpGet')!r} / {liveness_probe.get('httpGet')!r}",
+        )
+        checker.check(
+            "no startup probe by default (the cold install is an init container)",
+            not main.get("startupProbe"),
+        )
+        checker.check(
+            "liveness is given a budget loose enough for a busy build host",
+            int((liveness_probe.get("failureThreshold") or 0))
+            * int((liveness_probe.get("periodSeconds") or 0))
+            >= 120,
+            f"failureThreshold={liveness_probe.get('failureThreshold')!r} "
+            f"periodSeconds={liveness_probe.get('periodSeconds')!r}",
         )
 
     # -- the installer: root, on the RW side of /tools, actually running mise.
@@ -403,19 +423,20 @@ def check_toolenv(manifests: list[dict], checker: Checker) -> None:
 
 
 def check_probes(manifests: list[dict], checker: Checker) -> None:
-    """Probes, against a render that enables one **and disables the Service**:
+    """Probes, against a render with the Service **disabled**:
 
         helm template nilchela charts/nilchela \
-            --set probes.readiness.enabled=true \
             --set gateway.service.enabled=false \
             > /tmp/probes.yaml
 
     That combination is the interesting one, and the reason it is a contract
     rather than a comment: a kubelet probe comes from outside the container and
     targets the pod's own address, so a loopback-bound daemon fails its own
-    probe. Enabling a probe must therefore fix the bind the same way the Service
-    does — otherwise the probe is a self-inflicted restart loop. Asserted here
-    end to end: no Service, probe rendered, bind off loopback.
+    probe — and a failing *liveness* probe then restarts a pod that was working
+    perfectly. The probes must therefore fix the bind the same way the Service
+    does, and they must do it on their own, with no Service in the render.
+    Asserted here end to end: no Service, both probes rendered, bind off
+    loopback.
     """
     checker.check(
         "no Service is rendered when gateway.service.enabled=false",
@@ -434,7 +455,7 @@ def check_probes(manifests: list[dict], checker: Checker) -> None:
     readiness = main.get("readinessProbe") or {}
     http_get = readiness.get("httpGet") or {}
     checker.check(
-        "probes.readiness.enabled renders a readinessProbe",
+        "the default readiness probe renders with the Service off",
         bool(readiness),
         f"probe={readiness!r}",
     )
@@ -444,8 +465,8 @@ def check_probes(manifests: list[dict], checker: Checker) -> None:
         f"httpGet={http_get!r}",
     )
     checker.check(
-        "an enabled probe does not drag in a liveness probe",
-        not main.get("livenessProbe"),
+        "the default liveness probe renders with the Service off",
+        bool(main.get("livenessProbe")),
     )
 
     env_map = {
