@@ -91,10 +91,10 @@ storage:
     # existingClaim: zeroclaw-data
     # storageClass: ""
 
-# Probes. OFF by default — but they are the only thing that makes the pod's Ready
-# state mean anything. With every probe disabled the kubelet reports Ready the
-# moment the container is Running, so `helm install --wait` succeeding says
-# nothing about whether the agent works, and nothing restarts a wedged daemon.
+# Probes. Readiness and liveness ship ON; startup is off. They are what makes the
+# pod's Ready state mean anything — with every probe disabled the kubelet reports
+# Ready the moment the container is Running, so `helm install --wait` succeeding
+# says nothing about whether the agent works, and nothing restarts a wedged daemon.
 #
 # All three default to the gateway's unauthenticated /health, on the gateway
 # port, over HTTP (`type: TCP` works too, if you would rather not depend on the

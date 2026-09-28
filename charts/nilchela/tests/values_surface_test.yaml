@@ -322,9 +322,11 @@ tests:
           path: metadata.annotations["helm.sh/resource-policy"]
           value: keep
 
-  - it: adopts an existing claim instead of creating one
+  - it: adopts an existing claim instead of creating one, for every volume
     set:
       storage.tools.existingClaim: zeroclaw-tools
+      storage.cache.existingClaim: zeroclaw-cache
+      storage.data.existingClaim: zeroclaw-data
     documentSelector:
       path: kind
       value: StatefulSet
@@ -335,6 +337,18 @@ tests:
             name: tools
             persistentVolumeClaim:
               claimName: zeroclaw-tools
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: cache
+            persistentVolumeClaim:
+              claimName: zeroclaw-cache
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: zeroclaw-data
 
   # ---------------------------------------------------------------------------
   # scheduling passthrough

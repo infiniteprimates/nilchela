@@ -341,6 +341,18 @@ a wedged daemon, not a busy one. To narrow it to "the listener is gone", set
 queue, so it survives handler starvation, and you give up noticing a wedged
 handler in exchange.
 
+**Why a restart, not just an alert.** A failing `/health` is not a degraded
+service to be watched; it is the daemon's whole interface — dashboard, REST API,
+the route the agent is driven through — not answering. This is a single-replica
+pod, so the failure has to be repaired by a person either way, and the repair they
+would reach for is `kubectl rollout restart`. An alert does not replace that
+restart, it reports it: `restartCount` rising and `CrashLoopBackOff` are the alert
+conditions, and a restart that cannot fix its cause backs off loudly instead of
+retrying forever. The option that actually loses agent time is leaving a wedged
+pod in place and waiting for someone to read a page. Where liveness is genuinely
+the wrong tool is a pod that is *busy* rather than broken — which is why the
+budget is two minutes, not two failures.
+
 **Readiness is the cheap one.** It cannot destroy work, and it is what makes
 `helm install --wait` mean anything: with no probe, the pod reports Ready the
 moment the container is Running. Its cost is the blackhole above — one replica,

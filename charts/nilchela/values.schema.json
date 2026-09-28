@@ -99,6 +99,7 @@
     },
     "claim": {
       "type": "object",
+      "description": "One claim. `size` creates it; `existingClaim` adopts one you already have instead, and wins if both are set — `size` is defaulted in values.yaml, so it is present in practice even when the user names a claim.",
       "additionalProperties": false,
       "properties": {
         "size": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|K)$" },
