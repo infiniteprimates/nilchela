@@ -6,7 +6,7 @@ Why this exists: the chart delegates all rendering to the bjw-s `common`
 library, so what is *ours* is the translation (`templates/_translate.tpl`) and
 the pod model it emits — root installer, non-root agent, read-only /tools, split
 ownership, no fsGroup — plus the gateway's exposure posture (ClusterIP Service
-on the gateway port, bound off loopback, no probes). Asserting the translation
+on the gateway port, bound off loopback, probes off by default). Asserting the translation
 against *real output* rather than against our own values.yaml is the point: a
 faithful translation is a claim about what the library renders, and the only
 place that claim can be checked is here. This runs on every PR and on every
@@ -21,7 +21,9 @@ Usage:
         --chart-dir charts/nilchela --release-name nilchela
 
 Add --toolenv-render to also assert the `toolEnv` -> `[env]` mapping against a
-second render made with toolchain env set (see check_toolenv).
+second render made with toolchain env set (see check_toolenv), and
+--probes-render for a third with a probe enabled and the Service disabled
+(see check_probes).
 """
 
 from __future__ import annotations
@@ -213,12 +215,13 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
             f"ZEROCLAW_gateway__allow_public_bind={allow_public!r}",
         )
 
-        # -- and still no probes, by design (chart README): a liveness probe
-        # restarts a pet pod and drops in-flight agent work, and Ready on
-        # Running is the documented trade-off. Asserted so a probe cannot
-        # arrive unnoticed by someone who has not read that decision.
+        # -- still no probes by default. Probes are the consumer's choice (see
+        # values.yaml `probes`); what must not happen is one arriving *enabled*
+        # in the default install, where it would restart a pet pod and drop
+        # in-flight agent work without anyone opting into it. The enabled path is
+        # asserted in check_probes, against a render that turns one on.
         checker.check(
-            "main container renders no probes (restart stays a deliberate act)",
+            "main container renders no probes by default (restart stays opt-in)",
             not main.get("livenessProbe")
             and not main.get("readinessProbe")
             and not main.get("startupProbe"),
@@ -399,12 +402,74 @@ def check_toolenv(manifests: list[dict], checker: Checker) -> None:
         )
 
 
+def check_probes(manifests: list[dict], checker: Checker) -> None:
+    """Probes, against a render that enables one **and disables the Service**:
+
+        helm template nilchela charts/nilchela \
+            --set probes.readiness.enabled=true \
+            --set gateway.service.enabled=false \
+            > /tmp/probes.yaml
+
+    That combination is the interesting one, and the reason it is a contract
+    rather than a comment: a kubelet probe comes from outside the container and
+    targets the pod's own address, so a loopback-bound daemon fails its own
+    probe. Enabling a probe must therefore fix the bind the same way the Service
+    does — otherwise the probe is a self-inflicted restart loop. Asserted here
+    end to end: no Service, probe rendered, bind off loopback.
+    """
+    checker.check(
+        "no Service is rendered when gateway.service.enabled=false",
+        not by_kind(manifests, "Service"),
+    )
+    statefulset = by_kind(manifests, "StatefulSet")
+    if not statefulset:
+        checker.check("a StatefulSet is rendered", False)
+        return
+    pod_spec = statefulset[0]["spec"]["template"]["spec"]
+    main = container(pod_spec, "main")
+    if not main:
+        checker.check("main container exists", False)
+        return
+
+    readiness = main.get("readinessProbe") or {}
+    http_get = readiness.get("httpGet") or {}
+    checker.check(
+        "probes.readiness.enabled renders a readinessProbe",
+        bool(readiness),
+        f"probe={readiness!r}",
+    )
+    checker.check(
+        "the readiness probe targets the gateway's /health",
+        http_get.get("path") == "/health" and str(http_get.get("port")) == str(GATEWAY_PORT),
+        f"httpGet={http_get!r}",
+    )
+    checker.check(
+        "an enabled probe does not drag in a liveness probe",
+        not main.get("livenessProbe"),
+    )
+
+    env_map = {
+        item.get("name"): item.get("value")
+        for item in (main.get("env") or [])
+        if isinstance(item, dict)
+    }
+    checker.check(
+        "an enabled probe fixes the bind off loopback on its own",
+        env_map.get("ZEROCLAW_gateway__host") not in (None, "", "127.0.0.1", "localhost"),
+        f"ZEROCLAW_gateway__host={env_map.get('ZEROCLAW_gateway__host')!r}",
+    )
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rendered", help="output of `helm template`")
     parser.add_argument(
         "--toolenv-render",
         help="a second render made with `toolEnv` set, for the [env] mapping",
+    )
+    parser.add_argument(
+        "--probes-render",
+        help="a third render made with a probe enabled and the Service disabled",
     )
     parser.add_argument("--chart-dir", default="charts/nilchela")
     parser.add_argument("--release-name", default="nilchela")
@@ -416,6 +481,9 @@ def main(argv: list[str]) -> int:
     if args.toolenv_render:
         print(f"toolEnv mapping: {args.toolenv_render}\n")
         check_toolenv(load_manifests(args.toolenv_render), checker)
+    if args.probes_render:
+        print(f"probes: {args.probes_render}\n")
+        check_probes(load_manifests(args.probes_render), checker)
     return checker.report()
 
 

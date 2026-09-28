@@ -1,6 +1,7 @@
 {{/*
   The one template that renders anything: every resource in this chart is
-  produced by the bjw-s `common` library, from values it has never seen.
+  produced by the bjw-s `common` library, rendering from the values shape that
+  `_translate.tpl` builds.
 
   Why this works (read from the library source at 5.1.0, not assumed):
 

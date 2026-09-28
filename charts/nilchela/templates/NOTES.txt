@@ -82,15 +82,27 @@ the routes it serves sit where the proxy looks:
     ZEROCLAW_gateway__path_prefix: "/zeroclaw"
 
 KEEP THE ZEROCLAW WEB UI OFF THE OPEN INTERNET. It is an agent control surface —
-config, workspace personalities, pairing, agent loops — and reaching it needs a
-bearer token over plain HTTP, because this chart terminates no TLS. Reach it from
-inside the cluster, over a VPN, or through a proxy that authenticates before the
-request reaches the pod. If you terminate auth at the proxy, block /health there
-too: it does not check the token.
+config, workspace personalities, pairing, agent loops. What guards it is
+zeroclaw's own pairing (`gateway.require_pairing`, on by default), so there is no
+separate auth layer to add here: pairing is the mechanism, and it is a bearer
+token over plain HTTP, because this chart terminates no TLS. Reach the UI from
+inside the cluster or over a VPN.
 
-No probes, by design. The pod reports Ready the moment the container is Running,
-so "install succeeded" and "the agent works" are two different facts, and a
-wedged agent is not restarted automatically. Watch the logs:
+Probes are OFF by default, and configurable. With none enabled, Ready means only
+that the container started, and nothing restarts a wedged daemon:
+
+  helm upgrade {{ .Release.Name }} <chart> --reuse-values \
+    --set probes.readiness.enabled=true
+
+Enabling one also fixes the bind, exactly as the Service does: the probe comes
+from outside the container and targets the pod's address, not loopback, so a
+loopback-bound daemon fails its own probe. A readiness probe on /health is the
+shape worth having. Liveness is the sharper edge — it restarts a pod that may be
+mid-turn, and a daemon wedged on a model call still answers /health, so liveness
+will not catch the thing you were hoping it would.
+
+Either way, watch the logs — they are still the only signal that the agent itself
+is working:
 
   kubectl -n {{ .Release.Namespace }} logs -f <pod> -c main
 

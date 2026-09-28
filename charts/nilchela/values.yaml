@@ -87,6 +87,41 @@ storage:
   data:
     size: 10Gi
 
+# Probes. OFF by default — but they are the only thing that makes the pod's Ready
+# state mean anything. With every probe disabled the kubelet reports Ready the
+# moment the container is Running, so `helm install --wait` succeeding says
+# nothing about whether the agent works, and nothing restarts a wedged daemon.
+#
+# All three default to the gateway's unauthenticated /health, on the gateway
+# port, over HTTP (`type: TCP` works too, if you would rather not depend on the
+# route).
+#
+# Enabling any probe ALSO fixes the bind, for the same reason the Service does:
+# the kubelet probes the pod's own address, not loopback, so a loopback-bound
+# daemon fails its own probe — and a failing liveness probe then restarts a pod
+# that was working. One switch, not two settings to keep in agreement by hand.
+#
+# `spec` is a raw k8s probe spec, merged over the derived probe. The daemon
+# answers /health as soon as the gateway is up, and the toolchain install runs in
+# an init container, so it does not delay this container; starting points:
+#   readiness: initialDelaySeconds: 5,  periodSeconds: 10, timeoutSeconds: 2
+#   liveness:  initialDelaySeconds: 30, periodSeconds: 20, timeoutSeconds: 3
+#   startup:   set one only if your daemon startup is genuinely slow
+probes:
+  # Shared default for all three; each probe may override it, as well as `path`.
+  port: 42617
+  liveness:
+    enabled: false
+    # path: /health
+    # type: TCP
+    # spec: { initialDelaySeconds: 30, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3 }
+  readiness:
+    enabled: false
+    # spec: { initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 2 }
+  startup:
+    enabled: false
+    # spec: { failureThreshold: 30, periodSeconds: 10 }
+
 gateway:
   # `zeroclaw daemon` supervises an HTTP gateway (dashboard, REST API, /health)
   # on 42617, so the pod does take inbound traffic — this Service fronts it.
@@ -94,8 +129,9 @@ gateway:
   # Enabling the Service ALSO fixes the bind, and that is the point of the key:
   # the PVC over /zeroclaw-data shadows the image's baked config.toml, so the
   # daemon would otherwise listen on loopback and this Service would front a
-  # port nothing outside the pod can dial. One switch, instead of two settings
-  # that must be kept in agreement by hand.
+  # port nothing outside the pod can dial. `probes` fixes the same bind for the
+  # same reason. One switch each, instead of two settings that must be kept in
+  # agreement by hand.
   #
   # SECURITY: /health is unauthenticated — it reports pairing state and a
   # runtime snapshot — which is why the default is ClusterIP and in-cluster only.
@@ -106,8 +142,8 @@ gateway:
 
 # Pod placement. Passed through to the pod spec unchanged, because there is
 # nothing to rename. This is the whole "power user" surface: it is additive and
-# closed by construction — there is no path from here to service, probes,
-# controllers or persistence.
+# closed by construction — there is no path from here to service, controllers,
+# probes or persistence.
 scheduling: {}
   # nodeSelector: {}
   # tolerations: []

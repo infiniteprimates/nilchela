@@ -48,6 +48,17 @@
         "data": { "$ref": "#/definitions/claim" }
       }
     },
+    "probes": {
+      "type": "object",
+      "description": "Liveness/readiness/startup probes. Off by default; each is enabled individually and all three share one port default.",
+      "additionalProperties": false,
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "liveness": { "$ref": "#/definitions/probe" },
+        "readiness": { "$ref": "#/definitions/probe" },
+        "startup": { "$ref": "#/definitions/probe" }
+      }
+    },
     "gateway": {
       "type": "object",
       "additionalProperties": false,
@@ -74,6 +85,18 @@
     }
   },
   "definitions": {
+    "probe": {
+      "type": "object",
+      "description": "One probe. `spec` merges over the derived probe, so it takes the full k8s Probe shape (initialDelaySeconds, periodSeconds, timeoutSeconds, failureThreshold, successThreshold, terminationGracePeriodSeconds).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "type": { "type": "string", "enum": ["HTTP", "HTTPS", "TCP", "GRPC", "AUTO"] },
+        "path": { "type": "string", "pattern": "^/" },
+        "port": { "type": ["integer", "string"] },
+        "spec": { "type": "object" }
+      }
+    },
     "claim": {
       "type": "object",
       "additionalProperties": false,

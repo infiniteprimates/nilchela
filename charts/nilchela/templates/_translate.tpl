@@ -18,7 +18,7 @@
 {{- $image := $v.image | default dict -}}
 {{- $gw := $v.gateway | default dict -}}
 {{- $svc := $gw.service | default dict -}}
-{{- $svcEnabled := $svc.enabled | default true -}}
+{{- $svcEnabled := ternary $svc.enabled true (hasKey $svc "enabled") -}}
 {{- $userEnv := $v.env | default dict -}}
 {{- $storage := $v.storage | default dict -}}
 {{- $tools := $v.tools | default dict -}}
@@ -33,6 +33,20 @@
 {{- $dataSize := ($storage.data | default dict).size | default "10Gi" -}}
 {{- $svcType := $svc.type | default "ClusterIP" -}}
 {{- $svcPort := $svc.port | default 42617 -}}
+{{- $probesCfg := $v.probes | default dict -}}
+{{- $probeLive := $probesCfg.liveness | default dict -}}
+{{- $probeReady := $probesCfg.readiness | default dict -}}
+{{- $probeStart := $probesCfg.startup | default dict -}}
+{{- $probeLiveOn := $probeLive.enabled | default false -}}
+{{- $probeReadyOn := $probeReady.enabled | default false -}}
+{{- $probeStartOn := $probeStart.enabled | default false -}}
+{{- $probesOn := or $probeLiveOn (or $probeReadyOn $probeStartOn) -}}
+{{- $probePort := $probesCfg.port | default $svcPort -}}
+{{- /* The daemon must leave loopback for anything outside the container that has
+       to reach it: the Service, and the kubelet's probes. Both probe the pod IP,
+       so a probe against a loopback-bound daemon fails — and a liveness probe
+       would then restart a pod that was working perfectly. */ -}}
+{{- $reachable := or $svcEnabled $probesOn -}}
 {{- $toolsSpec := $storage.tools | default dict -}}
 {{- $cacheSpec := $storage.cache | default dict -}}
 {{- $dataSpec := $storage.data | default dict -}}
@@ -49,9 +63,9 @@ controllers:
           repository: {{ $repo }}
           tag: {{ $tag | quote }}
           pullPolicy: {{ $pull }}
-        {{- if or $svcEnabled (gt (len $userEnv) 0) }}
+        {{- if or $reachable (gt (len $userEnv) 0) }}
         env:
-          {{- if $svcEnabled }}
+          {{- if $reachable }}
           ZEROCLAW_gateway__host: "0.0.0.0"
           ZEROCLAW_gateway__allow_public_bind: "true"
           {{- end }}
@@ -69,6 +83,21 @@ controllers:
         {{- with $res }}
         resources:
           {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- if $probesOn }}
+        probes:
+          {{- if $probeLiveOn }}
+          liveness:
+            {{- toYaml (mergeOverwrite (dict "enabled" true "type" "HTTP" "path" "/health" "port" $probePort) $probeLive) | nindent 12 }}
+          {{- end }}
+          {{- if $probeReadyOn }}
+          readiness:
+            {{- toYaml (mergeOverwrite (dict "enabled" true "type" "HTTP" "path" "/health" "port" $probePort) $probeReady) | nindent 12 }}
+          {{- end }}
+          {{- if $probeStartOn }}
+          startup:
+            {{- toYaml (mergeOverwrite (dict "enabled" true "type" "HTTP" "path" "/health" "port" $probePort) $probeStart) | nindent 12 }}
+          {{- end }}
         {{- end }}
     initContainers:
       fix-ownership:

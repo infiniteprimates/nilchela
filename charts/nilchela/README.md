@@ -53,9 +53,9 @@ What that buys:
 - **Fail-fast input.** Unknown or malformed keys fail the render. A chart that
   exposes its dependency's schema cannot do this — the renderer simply ignores
   what it does not recognise.
-- **Invariants are structural, not prose.** There is no `probes:` or `ingress:`
-  key to set, no `defaultPodOptions` to reach through, and no wholesale
-  `app-template:` spread. See *What is deliberately not exposed*.
+- **Invariants are structural, not prose.** There is no `ingress:` key to set, no
+  `defaultPodOptions` to reach through, and no wholesale `app-template:` spread.
+  See *What is deliberately not exposed*.
 - **The dependency's versioning is our problem, not the user's.** A `common`
   bump changes this chart's internals; the values a user already wrote keep
   their shape. `tests/chart_contract.py` is the regression test for that claim.
@@ -197,9 +197,12 @@ say what happens to it next.
 
 - **Ingress, TLS, LoadBalancer.** Reaching the gateway from inside the cluster
   is the useful default; publishing it is a decision this chart does not make.
-  If you add an Ingress, terminate authentication there — see the `/health` note.
-- **Probes.** See below. This is a values-level absence; adding probes is a
-  chart change, which is the point.
+  If you add an Ingress, the `/health` note below is the part that matters: it is
+  the one route zeroclaw's pairing does not guard.
+- **Probes are opt-in, and configured here.** `probes.liveness/readiness/startup`
+  each take `enabled`, plus `type`, `path`, `port` and a raw k8s `spec`. All
+  three are **off by default** — see *Probes* below for why, and for what changes
+  when you turn one on.
 - **Extra containers, volumes, sidecars, ServiceMonitor, `defaultPodOptions`.**
   Reachable in `app-template`, withheld here: each one is a way to make the pod
   model untrue while looking configured.
@@ -222,9 +225,10 @@ traffic. The chart renders one **ClusterIP** `Service` on `42617` in front of it
 - **ClusterIP, and only ClusterIP.** Reaching the gateway from inside the
   cluster is the useful default; publishing it beyond the cluster is a decision
   this chart deliberately does not make. No Ingress, no TLS, no LoadBalancer.
-- **Ingress/TLS are the consumer's call** — and if you add them, terminate
-  authentication there, because of the `/health` note below. An **Ingress** is
-  the conventional choice; an **`HTTPRoute` (Gateway API)** is tidier if you
+- **Ingress/TLS are the consumer's call** — and if you add them, read the
+  `/health` note below: pairing guards the dashboard and `/api/*`, and never
+  guards that route. An **Ingress** is the conventional choice; an
+  **`HTTPRoute` (Gateway API)** is tidier if you
   already run it, because the route matches a subpath directly and rewrites it
   with a `URLRewrite` / `ReplacePrefixMatch` filter — no capture-group
   backreferences, which is exactly what an nginx `rewrite-target` needs for the
@@ -263,36 +267,65 @@ traffic. The chart renders one **ClusterIP** `Service` on `42617` in front of it
 > with no auth at all. The dashboard and `/api/*` honour the gateway's
 > pairing/TLS posture (`require_pairing` defaults to `true`; the guard is a
 > bearer token); `/health` does not. Inside a cluster that is acceptable — which
-> is exactly why `ClusterIP` is the default. The moment you put an Ingress in
-> front of this Service, terminate auth there before anything reaches `/health`.
+> is exactly why `ClusterIP` is the default. If you put an Ingress in front of
+> this Service, that route is the one to think about: pairing covers the dashboard
+> and `/api/*`, and it never covers `/health`.
 
 > **The ZeroClaw web UI must not be exposed to the open internet.** The
 > dashboard is an agent control surface — daemon config, workspace personality
-> files, pairing and device management, agent loops — and its authentication is a
-> bearer token over plain HTTP, which the chart does not terminate in TLS.
-> Reach it from inside the cluster, over a VPN, or through a proxy that
-> authenticates before the request reaches the pod.
+> files, pairing and device management, agent loops. What guards it is zeroclaw's
+> own **pairing** (`gateway.require_pairing`, on by default), so there is no
+> separate auth layer to add here; pairing is the mechanism, and it is a bearer
+> token over plain HTTP, because this chart terminates no TLS. Reach the UI from
+> inside the cluster or over a VPN.
 
-### No probes — still deliberate
+### Probes — off by default, configurable
 
-The library adds none by default and this chart does not either. The gateway
-*does* have `/health`, so a probe is possible — it was not, and older copies of
-this document said otherwise. What remains true is that neither probe is right
-for every consumer:
+Probes are **disabled by default and fully configurable through values**:
 
-- Without a probe, the pod reports **Ready as soon as the container is
-  Running**, so `helm install --wait` returning success says nothing about
-  whether the agent works.
-- A liveness probe restarts a pet pod — a restart drops in-flight agent work,
-  and an agent wedged on a model call still answers liveness. Restarting it
-  should be a deliberate choice, not a default.
+```yaml
+probes:
+  port: 42617          # shared default; a per-probe `port` overrides it
+  readiness:
+    enabled: true
+    # path: /health      # default
+    # type: HTTP         # default; HTTPS, TCP, GRPC, AUTO also accepted
+    spec: { initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 2 }
+  liveness:
+    enabled: false
+    # spec: { initialDelaySeconds: 30, periodSeconds: 20, timeoutSeconds: 3 }
+  startup:
+    enabled: false
+```
+
+Why the default is off: without a probe the pod reports **Ready as soon as the
+container is Running**, so `helm install --wait` returning success says nothing
+about whether the agent works. A liveness probe is the sharper edge — it restarts
+a pet pod, which drops in-flight agent work, and an agent wedged on a model call
+still answers liveness. Off is the conservative default; on is one key away.
+
+**Enabling any probe also fixes the bind.** This is the part worth knowing: a
+probe is issued by the kubelet from outside the container and targets the pod's
+own address, not loopback, so a loopback-bound daemon fails its own probe — and a
+failing *liveness* probe then restarts a pod that was working perfectly. So
+`probes` emits the same two schema-mirror env vars `gateway.service` does
+(`ZEROCLAW_gateway__host=0.0.0.0` and `ZEROCLAW_gateway__allow_public_bind=true`),
+for the same reason and with the same consequence: the pod's IP becomes reachable
+from anywhere in the cluster, which is why the chart's own arm of this stays
+ClusterIP.
+
+Shape notes:
+
+- The target is `/health` on the gateway port — the unauthenticated endpoint that
+  makes a poor public URL and a good probe target.
+- `spec` is a raw k8s probe spec merged over the derived probe, so
+  `initialDelaySeconds` / `periodSeconds` / `timeoutSeconds` / `failureThreshold` /
+  `successThreshold` all work. The chart bakes in no timings of its own.
 - Probes do not cover `initContainers`, so a cold `mise install` runs entirely
-  before the main container exists.
-
-If you want one, a **readiness** HTTP probe on `/health` is the safe shape — the
-unauthenticated endpoint that makes it a poor public URL is what makes it a good
-probe target. Adding it is a chart change on purpose: the default is a decision
-someone should have to make, not a key someone discovers.
+  before the main container exists — it cannot be what your probe waits for.
+- `tests/chart_contract.py` asserts both ends: the default render has no probes,
+  and a render with `probes.readiness.enabled=true` plus
+  `gateway.service.enabled=false` produces a probe *and* the off-loopback bind.
 
 ---
 
