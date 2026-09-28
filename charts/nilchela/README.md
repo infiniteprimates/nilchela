@@ -67,7 +67,8 @@ What that buys:
   See *What is deliberately not exposed*.
 - **The dependency's versioning is our problem, not the user's.** A `common`
   bump changes this chart's internals; the values a user already wrote keep
-  their shape. `tests/chart_contract.py` is the regression test for that claim.
+  their shape. The chart's test stack — see *Testing and validation* — is the
+  regression gate for that claim.
 
 What it costs — read this before you file a bug about it:
 
@@ -79,8 +80,8 @@ What it costs — read this before you file a bug about it:
   That is the trade, and it was made deliberately.
 - **A different flavour of coupling.** We depend on the library's *template* API
   (`bjw-s.common.loader.all` and the context it expects), not on a documented
-  values interface. So `common` is pinned exactly, and the contract test runs on
-  every bump.
+  values interface. So `common` is pinned exactly, and the full test stack runs
+  on every bump.
 
 ---
 
@@ -340,13 +341,57 @@ Shape notes:
 
 ---
 
+## Testing and validation
+
+Four layers, cheapest first. Each covers something the others cannot; where they
+overlap it is in spirit, not in reach.
+
+| # | Layer | Tool | What only it catches |
+|---|---|---|---|
+| 1 | Lint | `helm lint` | chart conventions and template syntax |
+| 2 | Schema validation | `kubeconform -strict` | rendered manifests against the Kubernetes API — a deprecated or malformed kind that would otherwise render green |
+| 3 | Template logic | `helm unittest` (`tests/values_surface_test.yaml`) | which conditional, default or loop produced each rendered value, with no cluster |
+| 4 | Pod model | `tests/chart_contract.py` | relations *between* rendered locations, which a path-against-literal assertion cannot express |
+
+Layers 3 and 4 are not substitutes for each other. `helm unittest` asserts that
+a path equals a literal; the contract test asserts that `main` and
+`install-tools` mount the *same* volume at `/tools`, that dropping `dependsOn`
+would reorder the installers, and that the rendered image tag still tracks
+`Chart.yaml`'s `appVersion`. Those are the invariants this chart exists to
+encode — and they are the class of bug the render gate has already caught once.
+
+To run the whole stack locally:
+
+```bash
+helm dependency build charts/nilchela
+helm lint charts/nilchela
+helm unittest charts/nilchela
+helm template nilchela charts/nilchela --namespace nilchela > /tmp/rendered.yaml
+kubeconform -strict -summary -kubernetes-version 1.28.0 /tmp/rendered.yaml
+uv run --with pyyaml python3 charts/nilchela/tests/chart_contract.py \
+  /tmp/rendered.yaml --chart-dir charts/nilchela
+```
+
+`kubeconform` is run at `1.28.0` — the floor `Chart.yaml` claims — and without
+`-ignore-missing-schemas`, so an unknown kind fails loudly rather than being
+skipped.
+
+Deliberately not on that list: `ct install` against a kind cluster. Two costs
+are specific to *this* chart — the image installs its toolchains at runtime over
+the network, so a per-PR install is slow, flaky, and tests the network more than
+the chart; and kind ships no storage provisioner while the chart renders three
+retained PVCs that would never bind. That belongs on a schedule or behind a
+label, not on every PR.
+
+---
+
 ## Upgrading the render library
 
 `common` is pinned exactly, not ranged, because its template API is versioned
 and a minor bump can rename or restructure what the loader renders. To bump it:
 change the version in `Chart.yaml`, run `helm dependency build charts/nilchela`,
-and run `tests/chart_contract.py` against the new render. A pod model that
-silently changed shape is exactly what that test exists to catch.
+and run the full test stack (*Testing and validation*) against the new render. A
+pod model that silently changed shape is exactly what layer 4 exists to catch.
 
 `Chart.lock` is committed with the dependency; regenerate it with
 `helm dependency build`.
