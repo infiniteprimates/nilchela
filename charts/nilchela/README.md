@@ -216,8 +216,8 @@ say what happens to it next.
 
 - **Ingress, TLS, LoadBalancer.** Reaching the gateway from inside the cluster
   is the useful default; publishing it is a decision this chart does not make.
-  If you add an Ingress, the `/health` note below is the part that matters: it is
-  the one route zeroclaw's pairing does not guard.
+  If you add an Ingress, the `/health` route is the one to think about — see
+  *The Service, and the bind it needs*.
 - **Probes are opt-in, and configured here.** `probes.liveness/readiness/startup`
   each take `enabled`, plus `type`, `path`, `port` and a raw k8s `spec`. All
   three are **off by default** — see *Probes* below for why, and for what changes
@@ -225,10 +225,10 @@ say what happens to it next.
 - **Extra containers, volumes, sidecars, ServiceMonitor, `defaultPodOptions`.**
   Reachable in `app-template`, withheld here: each one is a way to make the pod
   model untrue while looking configured.
-- **A wholesale `app-template:` spread.** This is the one that matters most. It
-  is the obvious "compatibility" gesture and it would put every invariant back
-  into prose, because a passthrough the translation does not read is a
-  passthrough that cannot be checked.
+- **A wholesale `app-template:` spread.** It stays out for testability, not
+  taste: a value that skips the translation is a value nothing in this chart
+  reads, so `tests/chart_contract.py` cannot assert it, and the guarantees above
+  go back to being prose.
 
 Power-user features are added as **relations**, not escape hatches. The Service
 is the worked example: `gateway.service.enabled` *derives* the bind override, so
