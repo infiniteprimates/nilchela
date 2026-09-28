@@ -209,8 +209,10 @@ All three created claims are annotated `helm.sh/resource-policy: keep`, so
 `helm uninstall` leaves them behind on purpose. Deleting an orphaned claim is a
 deliberate one-liner; recovering `/zeroclaw-data` after an accidental uninstall
 is not. To reattach one after an uninstall, set `storage.<volume>.existingClaim`
-— and note that an adopted claim is left unannotated, because it is not ours to
-say what happens to it next.
+— all three volumes take it, as an alternative to `size` — and note that an
+adopted claim is left unannotated, because it is not ours to say what happens to
+it next. The claim is used as-is: its size and storage class are whatever it
+already had, and this chart does not resize or re-provision it.
 
 ### What is deliberately not exposed
 

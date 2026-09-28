@@ -84,8 +84,12 @@ storage:
     # storageClass: ""
   cache:
     size: 5Gi
+    # existingClaim: zeroclaw-cache
+    # storageClass: ""
   data:
     size: 10Gi
+    # existingClaim: zeroclaw-data
+    # storageClass: ""
 
 # Probes. OFF by default — but they are the only thing that makes the pod's Ready
 # state mean anything. With every probe disabled the kubelet reports Ready the
