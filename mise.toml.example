@@ -47,11 +47,19 @@ gh       = "<version>"                        # GitHub CLI
 # Surfaced by mise via `mise env`/shims; kept OUT of the Dockerfile so the
 # image stays decoupled from the toolchain set.
 #
+# In the Helm chart this whole section is the `toolEnv` values key — the chart
+# renders it into the [env] table below and ships no defaults, because the
+# toolchain set (and therefore the variables needed) is deployment policy.
+#
 # Redirect build caches to a shared, bounded cache volume (or /tmp) so your
 # durable data volume doesn't fill with disposable registries.
 #
 # NOTE: these are cache POLICY, not mise boilerplate — each tool uses its own
 # cache-dir variable, so mise cannot infer them.
+#
+# NOTE: do not put mise's own bootstrap variables here (MISE_DATA_DIR,
+# MISE_RUSTUP_HOME, MISE_CACHE_DIR, ...). mise reads them before this file, and
+# restating them desynchronises the paths already used to install.
 [env]
 CARGO_HOME        = "/cache/cargo"            # rust crate registry + artifacts
 GOMODCACHE        = "/cache/go/pkg/mod"       # go module cache

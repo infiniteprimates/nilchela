@@ -22,6 +22,11 @@
       "type": "object",
       "description": "mise [tools] table. Values are version strings, or a map of tool options (rendered as a TOML sub-table)."
     },
+    "toolEnv": {
+      "type": "object",
+      "description": "mise [env] table: toolchain runtime environment (cache redirection, dist mirrors). Pinned by the deployment, not the chart — the toolchain set is deployment policy.",
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    },
     "env": {
       "type": "object",
       "additionalProperties": { "type": ["string", "number", "boolean"] }

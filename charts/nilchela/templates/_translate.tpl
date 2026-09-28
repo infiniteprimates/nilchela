@@ -22,6 +22,7 @@
 {{- $userEnv := $v.env | default dict -}}
 {{- $storage := $v.storage | default dict -}}
 {{- $tools := $v.tools | default dict -}}
+{{- $toolEnv := $v.toolEnv | default dict -}}
 {{- $sched := $v.scheduling | default dict -}}
 {{- $res := $v.resources | default dict -}}
 {{- $repo := $image.repository | default "ghcr.io/infiniteprimates/nilchela" -}}
@@ -187,13 +188,14 @@ configMaps:
         {{- end }}
         {{- end }}
 
-        # Toolchain cache redirection is policy, not boilerplate: each tool has its
-        # own variable, so mise cannot infer them. Keeps disposable registries off
-        # the durable /zeroclaw-data volume.
+        {{- with $toolEnv }}
+
+        # Toolchain runtime env, rendered from .Values.toolEnv. Each tool uses its own
+        # cache-dir variable, so mise cannot infer them; they are declared per
+        # deployment rather than pinned here, because the toolchain set is.
         [env]
-        CARGO_HOME       = "/cache/cargo"
-        GOMODCACHE       = "/cache/go/pkg/mod"
-        GOCACHE          = "/cache/go-build"
-        NPM_CONFIG_CACHE = "/cache/npm"
-        UV_CACHE_DIR     = "/cache/uv"
+        {{- range $k, $val := . }}
+        {{ $k }} = {{ $val | quote }}
+        {{- end }}
+        {{- end }}
 {{- end -}}

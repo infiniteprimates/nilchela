@@ -127,7 +127,11 @@ tools:
   rust:
     version: "1.83.0"
     profile: default          # a map renders as the [tools.rust] sub-table
-env:                          # extra environment, verbatim
+toolEnv:                      # rendered into mise.toml's [env]
+  CARGO_HOME: /cache/cargo
+  GOMODCACHE: /cache/go/pkg/mod
+  GOCACHE: /cache/go-build
+env:                          # pod-level env for the daemon, verbatim
   ZEROCLAW_models__default: "..."
 ```
 
@@ -136,10 +140,22 @@ throws away the warm-volume fast path the retained `/tools` claim exists to
 provide.
 
 See [`mise.toml.example`](../../mise.toml.example) for the full reference —
-per-tool options, Rust targets and components, dist mirrors. Toolchain caches
-are redirected onto `/cache` by the translation (each tool has its own variable,
-so `mise` cannot infer them); disposable registries stay off the durable
+per-tool options, Rust targets and components, dist mirrors.
+
+Toolchain environment is declared the same way, and for the same reason. The
+cache variables are per tool (`CARGO_HOME`, `GOMODCACHE`, `NPM_CONFIG_CACHE`,
+`UV_CACHE_DIR`, …), mise cannot infer them, and which ones you need follows from
+which tools you installed — so `toolEnv` is empty by default and the chart ships
+no defaults for it either. What you put there is rendered into `mise.toml`'s
+`[env]` table, which the image's `mise exec` entrypoint applies to the daemon and
+everything it spawns; `mise env` reports the same values. Pointing those
+variables at `/cache` is what keeps disposable registries off the durable
 `/zeroclaw-data` volume.
+
+Do not restate the image's own mise bootstrap variables in `toolEnv`
+(`MISE_DATA_DIR`, `MISE_RUSTUP_HOME`, `MISE_CACHE_DIR`, …). mise reads those
+before `mise.toml` exists; restating them here desynchronises the paths it
+already installed into.
 
 ### Overriding the rest
 

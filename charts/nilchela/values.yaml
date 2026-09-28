@@ -39,7 +39,33 @@ tools: {}
 # Extra container environment, verbatim. `ZEROCLAW_`-prefixed keys set the
 # daemon's own config in schema-mirror form (ZEROCLAW_gateway__host). The bind
 # the Service needs is derived from gateway.service, not set here — see below.
+#
+# This is pod-level env for the daemon. Toolchain variables do NOT belong here:
+# they go in `toolEnv` below, which lands in mise.toml's [env] so that anything
+# run through mise — the daemon, and every process it spawns — sees them.
 env: {}
+  # ZEROCLAW_models__default: "..."
+
+# Toolchain runtime env, rendered into mise.toml's [env] table. Read by the
+# image's `mise exec` entrypoint, so the daemon and its children inherit it, and
+# `mise env` reports the same values for diagnosis.
+#
+# Empty by default, for the same reason `tools` is: the chart pins no toolchain,
+# so it cannot know which variables that toolchain needs. Each tool has its own
+# cache-dir variable and mise cannot infer them — declare the ones your installed
+# tools use. Caches land on /cache, which keeps disposable registries off the
+# durable /zeroclaw-data volume.
+#
+# Do NOT restate the image's mise bootstrap variables (MISE_DATA_DIR,
+# MISE_RUSTUP_HOME, MISE_CACHE_DIR, …). mise reads those before this file exists;
+# restating them here desynchronises the paths it already used to install.
+toolEnv: {}
+  # rust:   CARGO_HOME: /cache/cargo          # crate registry + build artifacts
+  # go:     GOMODCACHE: /cache/go/pkg/mod     # module cache
+  #         GOCACHE: /cache/go-build          # build cache
+  # node:   NPM_CONFIG_CACHE: /cache/npm
+  # python: UV_CACHE_DIR: /cache/uv
+  #         PIP_CACHE_DIR: /cache/pip
 
 resources:
   requests:

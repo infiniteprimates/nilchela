@@ -19,12 +19,16 @@ Usage:
     helm template nilchela charts/nilchela > /tmp/rendered.yaml
     python3 charts/nilchela/tests/chart_contract.py /tmp/rendered.yaml \
         --chart-dir charts/nilchela --release-name nilchela
+
+Add --toolenv-render to also assert the `toolEnv` -> `[env]` mapping against a
+second render made with toolchain env set (see check_toolenv).
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import tomllib
 
 import yaml
 
@@ -310,6 +314,17 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
             "a ConfigMap provides the mise.toml key",
             any("mise.toml" in (doc.get("data") or {}) for doc in configmaps),
         )
+        mise_toml = mise_toml_from(configmaps)
+        # The chart pins no toolchain and no toolchain env — what is installed, and
+        # the variables that toolchain needs, are deployment policy. Both tables
+        # exist only when the deployment supplies them. Parsed, not string-matched:
+        # a malformed table must fail here rather than at pod start.
+        parsed = tomllib.loads(mise_toml)
+        checker.check(
+            "the rendered mise.toml parses and pins no toolchain or toolchain env",
+            "tools" in parsed and parsed.get("env") is None,
+            f"mise.toml={mise_toml!r}",
+        )
 
     # -- the three claims exist and survive `helm uninstall`.
     pvcs = by_kind(manifests, "PersistentVolumeClaim")
@@ -345,9 +360,52 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
     )
 
 
+def mise_toml_from(configmaps: list[dict]) -> str:
+    return next(
+        (
+            doc["data"]["mise.toml"]
+            for doc in configmaps
+            if "mise.toml" in (doc.get("data") or {})
+        ),
+        "",
+    )
+
+
+def check_toolenv(manifests: list[dict], checker: Checker) -> None:
+    """The `toolEnv` -> `mise.toml` `[env]` mapping, against a render made with
+    toolchain env set:
+
+        helm template nilchela charts/nilchela \
+            --set toolEnv.CARGO_HOME=/cache/cargo \
+            --set toolEnv.GOCACHE=/cache/go-build \
+            > /tmp/toolenv.yaml
+    """
+    mise_toml = mise_toml_from(by_kind(manifests, "ConfigMap"))
+    try:
+        parsed = tomllib.loads(mise_toml)
+    except tomllib.TOMLDecodeError as error:
+        checker.check("toolEnv renders a parseable mise.toml", False, str(error))
+        return
+    checker.check("toolEnv renders a parseable mise.toml", True)
+    checker.check(
+        "toolEnv renders as a mise.toml [env] table",
+        isinstance(parsed.get("env"), dict),
+        f"mise.toml={mise_toml!r}",
+    )
+    for name, value in (("CARGO_HOME", "/cache/cargo"), ("GOCACHE", "/cache/go-build")):
+        checker.check(
+            f"toolEnv {name} renders into [env] as a string",
+            (parsed.get("env") or {}).get(name) == value,
+        )
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rendered", help="output of `helm template`")
+    parser.add_argument(
+        "--toolenv-render",
+        help="a second render made with `toolEnv` set, for the [env] mapping",
+    )
     parser.add_argument("--chart-dir", default="charts/nilchela")
     parser.add_argument("--release-name", default="nilchela")
     args = parser.parse_args(argv)
@@ -355,6 +413,9 @@ def main(argv: list[str]) -> int:
     print(f"chart contract: {args.chart_dir} -> {args.rendered}\n")
     checker = Checker()
     run_checks(load_manifests(args.rendered), args.chart_dir, checker)
+    if args.toolenv_render:
+        print(f"toolEnv mapping: {args.toolenv_render}\n")
+        check_toolenv(load_manifests(args.toolenv_render), checker)
     return checker.report()
 
 
