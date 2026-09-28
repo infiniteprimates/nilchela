@@ -23,14 +23,23 @@ StatefulSet `nilchela`, PVCs `nilchela-tools` / `nilchela-cache` /
 
 ## The public interface belongs to this chart
 
-Four files, and only the first two are yours:
+One file is yours; the other three are the chart's, and only the first is the
+interface:
 
 | File | Role |
 |---|---|
-| `values.yaml` | the surface — nilchela concepts only |
-| `values.schema.json` | rejects unknown or malformed keys before render |
+| `values.yaml` | the surface — nilchela concepts only. The one file a consumer reads and writes |
+| `values.schema.json` | the chart's guard on that surface: rejects unknown or malformed keys before render |
 | `templates/_translate.tpl` | maps those values onto the shape the render library reads |
 | `templates/resources.yaml` | calls `bjw-s.common.loader.all` with a context built from the translation |
+
+`values.schema.json` is not a second copy of the surface. It is the chart's
+*enforcement* of it — a second description of the same key set, whose only job is
+to turn an unknown or malformed key into a render error instead of a silent
+no-op. It is maintained chart-side and has to track `values.yaml` key for key,
+and it already carries keys no consumer ever sets (the `common` bookkeeping Helm
+injects for the library dependency). If the two disagree, the schema is what
+runs.
 
 The chart writes no Kubernetes YAML of its own. StatefulSet, PVCs, ConfigMap,
 Service and ServiceAccount are rendered by
