@@ -24,6 +24,25 @@ a cold volume and is near-instant afterwards:
 
 Bumping a tool is a values change and a roll — the image never rebuilds.
 
+Toolchain env is the second half of that setup, and it is a separate key because
+it is a separate decision. `toolEnv` is rendered into the chart's mise.toml as
+its [env] table, which mise applies to the daemon and to everything the daemon
+spawns:
+
+  helm upgrade {{ .Release.Name }} <chart> --reuse-values \
+    --set toolEnv.CARGO_HOME=/cache/cargo \
+    --set toolEnv.GOCACHE=/cache/go-build
+
+Every tool has its own cache variable and mise cannot infer them, so this map is
+empty by default for the same reason `tools` is: the variables follow from the
+tools you pinned. Pointing them at /cache (the {{ ((.Values.storage).cache).size | default "5Gi" }} claim) keeps disposable
+registries off the durable /zeroclaw-data volume — the per-tool list is in the
+chart README, and in mise.toml.example section 3.
+
+Do not set the image's own mise variables here (MISE_DATA_DIR, MISE_RUSTUP_HOME,
+MISE_CACHE_DIR): mise reads them before mise.toml exists, so restating them
+desynchronises the paths it has already installed into.
+
 {{- if ((.Values.gateway).service).enabled }}
 
 The ZeroClaw gateway is fronted by a {{ ((.Values.gateway).service).type | default "ClusterIP" }} Service — cluster-internal
