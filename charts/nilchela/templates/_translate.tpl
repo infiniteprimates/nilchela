@@ -1,5 +1,6 @@
 {{/*
-  nilchela -> bjw-s common: the only place the two vocabularies meet.
+  The translation seam: nilchela's value keys -> the shape that
+  `bjw-s.common.loader.all` renders from.
 
   Emits the values shape that `bjw-s.common.loader.all` renders from. The output
   is written as YAML text and re-parsed by the caller (`| fromYaml`) rather than
