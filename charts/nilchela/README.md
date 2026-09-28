@@ -140,12 +140,19 @@ tools:
     version: "1.83.0"
     profile: default          # a map renders as the [tools.rust] sub-table
 toolEnv:                      # rendered into mise.toml's [env]
-  CARGO_HOME: /cache/cargo
-  GOMODCACHE: /cache/go/pkg/mod
-  GOCACHE: /cache/go-build
+  CARGO_HOME: /cache/cargo        # Rust — crate registry + build artifacts
+  GOMODCACHE: /cache/go/pkg/mod   # Go — module cache
+  GOCACHE: /cache/go-build        # Go — build cache
+  NPM_CONFIG_CACHE: /cache/npm    # Node — npm cache
+  UV_CACHE_DIR: /cache/uv         # Python — uv cache
+  PIP_CACHE_DIR: /cache/pip       # Python — pip cache
 env:                          # pod-level env for the daemon, verbatim
   ZEROCLAW_models__default: "..."
 ```
+
+That is the common set, one entry per toolchain that keeps a cache of its own.
+Each variable belongs to a single tool, so take only the lines for the tools you
+pinned.
 
 Pin exactly. A range makes `mise` resolve over the network on every start, which
 throws away the warm-volume fast path the retained `/tools` claim exists to
