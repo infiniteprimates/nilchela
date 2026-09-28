@@ -223,7 +223,14 @@ traffic. The chart renders one **ClusterIP** `Service` on `42617` in front of it
   cluster is the useful default; publishing it beyond the cluster is a decision
   this chart deliberately does not make. No Ingress, no TLS, no LoadBalancer.
 - **Ingress/TLS are the consumer's call** — and if you add them, terminate
-  authentication there, because of the `/health` note below.
+  authentication there, because of the `/health` note below. An **Ingress** is
+  the conventional choice; an **`HTTPRoute` (Gateway API)** is tidier if you
+  already run it, because the route matches a subpath directly and rewrites it
+  with a `URLRewrite` / `ReplacePrefixMatch` filter — no capture-group
+  backreferences, which is exactly what an nginx `rewrite-target` needs for the
+  same job. Serving the gateway under a subpath also wants
+  `env: { ZEROCLAW_gateway__path_prefix: "/<prefix>" }`, so the routes the
+  daemon serves sit where the proxy looks.
 - **The Service is only useful because the bind is fixed, and the switch that
   fixes it is the same switch that creates the Service.** The chart's PVC at
   `/zeroclaw-data` **shadows** the image's baked
@@ -254,10 +261,17 @@ traffic. The chart renders one **ClusterIP** `Service` on `42617` in front of it
 > **`/health` is unauthenticated.** It returns `status`, `paired`,
 > `require_pairing` and a runtime health snapshot (component registry + uptime)
 > with no auth at all. The dashboard and `/api/*` honour the gateway's
-> pairing/TLS posture; `/health` does not. Inside a cluster that is acceptable —
-> which is exactly why `ClusterIP` is the default. The moment you put an Ingress
-> in front of this Service, terminate auth there before anything reaches
-> `/health`.
+> pairing/TLS posture (`require_pairing` defaults to `true`; the guard is a
+> bearer token); `/health` does not. Inside a cluster that is acceptable — which
+> is exactly why `ClusterIP` is the default. The moment you put an Ingress in
+> front of this Service, terminate auth there before anything reaches `/health`.
+
+> **The ZeroClaw web UI must not be exposed to the open internet.** The
+> dashboard is an agent control surface — daemon config, workspace personality
+> files, pairing and device management, agent loops — and its authentication is a
+> bearer token over plain HTTP, which the chart does not terminate in TLS.
+> Reach it from inside the cluster, over a VPN, or through a proxy that
+> authenticates before the request reaches the pod.
 
 ### No probes — still deliberate
 

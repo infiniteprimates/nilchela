@@ -61,9 +61,32 @@ No Service is rendered and the daemon listens on loopback only:
 {{- end }}
 
 /health IS UNAUTHENTICATED. It reports pairing state (`paired`,
-`require_pairing`) and a runtime health snapshot. That is acceptable from inside
-the cluster, which is why the Service is ClusterIP and not LoadBalancer or
-Ingress — if you add one, terminate authentication in front of it.
+`require_pairing`) and a runtime health snapshot. The dashboard and /api/* are
+guarded by pairing, which is on by default — but that guard is a bearer token
+over plain HTTP, and /health never consults it.
+
+Exposing this beyond the cluster is your call, and the chart makes none of it: no
+Ingress, no HTTPRoute, no TLS. Two ways to add one, and the second is the tidier
+if you already run Gateway API:
+
+  * Ingress — the conventional route. Note that serving the gateway under a
+    subpath needs a rewrite with capture-group backreferences (nginx
+    `rewrite-target: /$2` over a `/zeroclaw(/|$)(.*)` path).
+  * Gateway API — an HTTPRoute matches the path directly, and a URLRewrite
+    filter with ReplacePrefixMatch rewrites it with no backreferences at all.
+
+Either way, if the daemon ends up under a subpath, set the same prefix on it, so
+the routes it serves sit where the proxy looks:
+
+  env:
+    ZEROCLAW_gateway__path_prefix: "/zeroclaw"
+
+KEEP THE ZEROCLAW WEB UI OFF THE OPEN INTERNET. It is an agent control surface —
+config, workspace personalities, pairing, agent loops — and reaching it needs a
+bearer token over plain HTTP, because this chart terminates no TLS. Reach it from
+inside the cluster, over a VPN, or through a proxy that authenticates before the
+request reaches the pod. If you terminate auth at the proxy, block /health there
+too: it does not check the token.
 
 No probes, by design. The pod reports Ready the moment the container is Running,
 so "install succeeded" and "the agent works" are two different facts, and a
