@@ -1,0 +1,184 @@
+# =============================================================================
+# nilchela — the chart's public values.
+#
+# Every key here is a nilchela concept. There is no app-template vocabulary in
+# this file by design: templates/_translate.tpl maps these onto the shape the
+# bjw-s `common` library renders from, and nothing about collections,
+# `advancedMounts` or `main` as a magic key is user-visible.
+#
+# Unknown keys are rejected by values.schema.json — a typo must fail the render,
+# not be silently ignored. `helm template` is the check; tests/chart_contract.py
+# asserts the result.
+# =============================================================================
+
+image:
+  repository: ghcr.io/infiniteprimates/nilchela
+  # Empty means .Chart.AppVersion — the image version this chart deploys.
+  # tests/chart_contract.py fails the build if the two drift.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The mise.toml the image consumes, keyed as that file is written: `tools` is its
+# [tools] table, `env` is its [env] table. One parent because both keys land in
+# the same file and are read by the same mechanism — the image's `mise exec`
+# entrypoint. Keying the values by the file they render into is what keeps the
+# mapping obvious.
+#
+# `env` further down is a different thing entirely: the *container's* environment,
+# set by Kubernetes on PID 1. Two different mechanisms, one shared name — the
+# parent is what disambiguates them.
+mise:
+  # Toolchains, rendered into the mise.toml [tools] table mounted at
+  # /config/mise.toml.
+  #
+  # Empty is a valid install: nothing is installed until you add an entry, and the
+  # pod runs either way. Which tools an agent needs is deployment policy, so the
+  # chart pins none.
+  #
+  # Pin exactly. A range makes mise resolve over the network on every start, which
+  # throws away the warm-volume fast path.
+  #
+  # Nested maps become TOML sub-tables, e.g. rust: { version: "...", profile: default }
+  # renders as [tools.rust].
+  tools: {}
+    # go: "1.27.1"
+    # node: "24.20.0"
+    # python: "3.14.7"
+    # rust: { version: "1.83.0", profile: default }
+
+  # Toolchain runtime env, rendered into mise.toml's [env] table. Applied by the
+  # image's `mise exec` entrypoint, so the daemon and its children inherit it, and
+  # `mise env` reports the same values for diagnosis.
+  #
+  # Empty by default, for the same reason `tools` is: the chart pins no toolchain,
+  # so it cannot know which variables that toolchain needs. Each tool has its own
+  # cache-dir variable and mise cannot infer them — declare the ones your installed
+  # tools use. Caches land on /cache, which keeps disposable registries off the
+  # durable /zeroclaw-data volume.
+  #
+  # Do NOT restate the image's mise bootstrap variables (MISE_DATA_DIR,
+  # MISE_RUSTUP_HOME, MISE_CACHE_DIR, …). mise reads those before this file exists;
+  # restating them here desynchronises the paths it already used to install.
+  env: {}
+    # CARGO_HOME: /cache/cargo          # Rust — crate registry + build artifacts
+    # GOMODCACHE: /cache/go/pkg/mod     # Go — module cache
+    # GOCACHE: /cache/go-build          # Go — build cache
+    # NPM_CONFIG_CACHE: /cache/npm      # Node — npm cache
+    # UV_CACHE_DIR: /cache/uv           # Python — uv cache
+    # PIP_CACHE_DIR: /cache/pip         # Python — pip cache
+
+# Extra container environment, verbatim. `ZEROCLAW_`-prefixed keys set the
+# daemon's own config in schema-mirror form (ZEROCLAW_gateway__host). The bind
+# the Service needs is derived from gateway.service, not set here — see below.
+#
+# This is the container's own env. Toolchain variables do NOT belong here: they go
+# in `mise.env` above, which mise applies inside the container. Declaring the same
+# variable in both is a contradiction the chart does not resolve for you.
+env: {}
+  # ZEROCLAW_models__default: "..."
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  # No limits on purpose: this is a build host. A CPU/memory limit turns a slow
+  # `cargo build` into an OOMKill instead.
+
+# The three claims. `size` creates a claim; `existingClaim` adopts one you
+# already have instead (an uninstalled release leaves its claims behind — see
+# README). All created claims are annotated `helm.sh/resource-policy: keep`.
+storage:
+  tools:
+    size: 10Gi
+    # existingClaim: zeroclaw-tools
+    # storageClass: ""
+  cache:
+    size: 5Gi
+    # existingClaim: zeroclaw-cache
+    # storageClass: ""
+  data:
+    size: 10Gi
+    # existingClaim: zeroclaw-data
+    # storageClass: ""
+
+# Probes. Readiness and liveness ship ON; startup is off. They are what makes the
+# pod's Ready state mean anything — with every probe disabled the kubelet reports
+# Ready the moment the container is Running, so `helm install --wait` succeeding
+# says nothing about whether the agent works, and nothing restarts a wedged daemon.
+#
+# All three default to the gateway's unauthenticated /health, on the gateway
+# port, over HTTP (`type: TCP` works too, if you would rather not depend on the
+# route).
+#
+# Enabling any probe ALSO fixes the bind, for the same reason the Service does:
+# the kubelet probes the pod's own address, not loopback, so a loopback-bound
+# daemon fails its own probe — and a failing liveness probe then restarts a pod
+# that was working. One switch, not two settings to keep in agreement by hand.
+#
+# Readiness and liveness ship ON, because the failure they answer is the one worth
+# acting on: a daemon that cannot serve /health at all. While it is not answering
+# nothing is progressing that a restart would interrupt.
+#
+# What is not safe is a tight budget. /health is served by the same process that
+# supervises the agent's work, so on a pod compressing a `cargo build` the handler
+# can be scheduled late without anything being broken — a probe that restarts a
+# healthy-but-busy pod is worse than no probe, because it interrupts the build and
+# the rebuild runs under the same load. 6 x 20s of unbroken silence is a wedged
+# daemon, not a busy one. `probes.liveness.type: TCP` narrows it to "the listener
+# is gone" (the kernel answers from the accept queue, so it survives handler
+# starvation) at the cost of not noticing a wedged handler.
+#
+# The install runs in an *init container*, so a cold `mise install` is done before
+# this container exists and the daemon's own boot is short: no startup probe by
+# default. Set one only if your daemon startup is genuinely slow.
+#
+# `spec` is a raw k8s probe spec, merged over the derived probe.
+probes:
+  # Shared default for all three; each probe may override it, as well as `path`.
+  port: 42617
+  liveness:
+    enabled: true
+    # path: /health
+    # type: TCP
+    spec:
+      initialDelaySeconds: 30
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 6
+  readiness:
+    enabled: true
+    spec:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+  startup:
+    enabled: false
+    # spec: { failureThreshold: 30, periodSeconds: 10 }
+
+gateway:
+  # `zeroclaw daemon` supervises an HTTP gateway (dashboard, REST API, /health)
+  # on 42617, so the pod does take inbound traffic — this Service fronts it.
+  #
+  # Enabling the Service ALSO fixes the bind, and that is the point of the key:
+  # the PVC over /zeroclaw-data shadows the image's baked config.toml, so the
+  # daemon would otherwise listen on loopback and this Service would front a
+  # port nothing outside the pod can dial. `probes` fixes the same bind for the
+  # same reason. One switch each, instead of two settings that must be kept in
+  # agreement by hand.
+  #
+  # SECURITY: /health is unauthenticated — it reports pairing state and a
+  # runtime snapshot — which is why the default is ClusterIP and in-cluster only.
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 42617
+
+# Pod placement. Passed through to the pod spec unchanged, because there is
+# nothing to rename. This is the whole "power user" surface: it is additive and
+# closed by construction — there is no path from here to service, controllers,
+# probes or persistence.
+scheduling: {}
+  # nodeSelector: {}
+  # tolerations: []
+  # affinity: {}

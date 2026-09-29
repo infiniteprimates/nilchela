@@ -15,3 +15,17 @@ mise.local.toml
 # Build/env
 .env
 .env.*
+
+# uv puts the harness venv inside the tree (charts/nilchela/tests/.venv). No
+# leading slash, so the pattern matches at any depth.
+.venv/
+
+# Helm chart dependency output. `helm dependency build` resolves the bjw-s
+# `common` library into charts/<chart>/charts/; that archive is reproducible from
+# the pinned version in Chart.yaml, so it is not committed.
+#
+# The glob is deliberate. `charts/` at the repo root is chart *source* and stays
+# tracked, so it cannot be ignored by name; what is ignored is the dependency
+# directory inside any chart, which survives the chart being renamed or a second
+# chart being added. (To vendor a chart there on purpose, add it with `git add -f`.)
+charts/*/charts/

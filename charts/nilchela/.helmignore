@@ -1,0 +1,3 @@
+# Keep the chart archive to chart content only. The contract test is CI tooling
+# that runs against a *rendered* release; it has no role inside the package.
+tests/

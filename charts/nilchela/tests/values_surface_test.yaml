@@ -1,0 +1,455 @@
+# helm-unittest suites for the nilchela values surface.
+#
+# These cover LAYER 2 of the testing stack: template logic -- the conditionals,
+# loops and variable derivations in templates/_translate.tpl -- asserted against
+# literals, with no cluster. They deliberately do NOT replace
+# tests/chart_contract.py: helm-unittest asserts a path against a literal, and
+# cannot express a *relation* between two rendered locations (e.g. "main and
+# install-tools mount the SAME volume at /tools"). Those stay in the contract
+# test; see ci/chart.yaml for the layer split.
+#
+# Every document here comes from nilchela/templates/resources.yaml, which calls
+# the bjw-s common library loader, so `templates` is that one file.
+suite: nilchela values surface
+# Render under the release name the chart is actually deployed as, so the
+# fixtures read like a real install (`nilchela-tools`, not `release-name-...`).
+release:
+  name: nilchela
+templates:
+  - resources.yaml
+
+tests:
+  # ---------------------------------------------------------------------------
+  # image
+  # ---------------------------------------------------------------------------
+  - it: defaults the image tag to the chart appVersion
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/infiniteprimates/nilchela:0.0.3
+
+  - it: lets image.tag override the chart appVersion
+    set:
+      image.tag: "1.2.3"
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/infiniteprimates/nilchela:1.2.3
+
+  - it: defaults the pull policy to IfNotPresent
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+
+  - it: lets image.pullPolicy be overridden
+    set:
+      image.pullPolicy: Always
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Always
+
+  # ---------------------------------------------------------------------------
+  # gateway.service -> Service + the derived bind
+  # ---------------------------------------------------------------------------
+  - it: renders a ClusterIP Service on the gateway port by default
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports[0].port
+          value: 42617
+
+  - it: derives the off-loopback bind while the Service is enabled
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ZEROCLAW_gateway__host
+            value: "0.0.0.0"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ZEROCLAW_gateway__allow_public_bind
+            value: "true"
+
+  # A probe is the *other* thing that needs the pod reachable: the kubelet dials
+  # the pod IP, so the derived bind is driven by `or $svcEnabled $probesOn`, not by
+  # the Service alone. To assert the Service's own contribution to the bind, both
+  # sources have to be off -- with the shipped defaults (probes on) this expects an
+  # env block, which is the suite's next case, not this one.
+  - it: renders no Service and no bind env when nothing needs the pod reachable
+    set:
+      gateway.service.enabled: false
+      probes.liveness.enabled: false
+      probes.readiness.enabled: false
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].env
+
+  # The regression this suite exists for: `$svc.enabled | default true` treated
+  # `false` as empty, so the documented off-switch never worked. Count the docs.
+  - it: drops the Service object itself when gateway.service.enabled is false
+    set:
+      gateway.service.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 6
+
+  - it: renders the Service object when gateway.service.enabled is true
+    asserts:
+      - hasDocuments:
+          count: 7
+
+  - it: lets the Service type be overridden
+    set:
+      gateway.service.type: NodePort
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: spec.type
+          value: NodePort
+
+  # ---------------------------------------------------------------------------
+  # probes -> probe + the same derived bind
+  # ---------------------------------------------------------------------------
+  - it: renders readiness and liveness by default, and no startup probe
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - isNotNull:
+          path: spec.template.spec.containers[0].readinessProbe
+      - isNotNull:
+          path: spec.template.spec.containers[0].livenessProbe
+      - isNull:
+          path: spec.template.spec.containers[0].startupProbe
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+
+  - it: renders the derived readiness probe on /health
+    set:
+      probes.readiness.enabled: true
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 42617
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.scheme
+          value: HTTP
+
+  # A probe is issued by the kubelet against the POD address, not loopback, so an
+  # enabled probe has to fix the bind even when the Service is off. This is the
+  # combination where getting it wrong is invisible.
+  - it: keeps the bind env when the probes are on and the Service is not
+    set:
+      gateway.service.enabled: false
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ZEROCLAW_gateway__host
+            value: "0.0.0.0"
+      - isNotNull:
+          path: spec.template.spec.containers[0].readinessProbe
+
+  - it: merges a raw probe spec over the derived probe
+    set:
+      probes.liveness.spec.initialDelaySeconds: 45
+      probes.liveness.spec.failureThreshold: 5
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.initialDelaySeconds
+          value: 45
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.failureThreshold
+          value: 5
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+
+  - it: lets a probe override the shared probe port
+    set:
+      probes.port: 9999
+      probes.startup.enabled: true
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.port
+          value: 9999
+
+  # ---------------------------------------------------------------------------
+  # env passthrough
+  # ---------------------------------------------------------------------------
+  - it: passes user env through verbatim
+    set:
+      env.ZEROCLAW_models__default: some/model
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ZEROCLAW_models__default
+            value: some/model
+
+  # ---------------------------------------------------------------------------
+  # mise.toml ConfigMap -- mise.tools and mise.env are separate tables
+  # ---------------------------------------------------------------------------
+  - it: renders an empty [tools] table and no [env] table by default
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["mise.toml"]
+          pattern: "\\[tools\\]"
+      - notMatchRegex:
+          path: data["mise.toml"]
+          pattern: "\\[env\\]"
+
+  - it: renders a pinned tool into [tools]
+    set:
+      mise.tools.go: "1.27.1"
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["mise.toml"]
+          pattern: 'go = "1\.27\.1"'
+
+  - it: renders a nested tool map as a TOML sub-table
+    set:
+      mise.tools.rust.version: "1.83.0"
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["mise.toml"]
+          pattern: "\\[tools\\.rust\\]"
+      - matchRegex:
+          path: data["mise.toml"]
+          pattern: 'version = "1\.83\.0"'
+
+  - it: renders mise.env into the mise.toml [env] table
+    set:
+      mise.env.CARGO_HOME: /cache/cargo
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["mise.toml"]
+          pattern: "\\[env\\]"
+      - matchRegex:
+          path: data["mise.toml"]
+          pattern: 'CARGO_HOME = "/cache/cargo"'
+
+  # ---------------------------------------------------------------------------
+  # storage
+  # ---------------------------------------------------------------------------
+  - it: renders the tools claim at its default size
+    documentSelector:
+      path: metadata.name
+      value: nilchela-tools
+    asserts:
+      - equal:
+          path: spec.resources.requests.storage
+          value: 10Gi
+
+  - it: renders the cache claim at its default size
+    documentSelector:
+      path: metadata.name
+      value: nilchela-cache
+    asserts:
+      - equal:
+          path: spec.resources.requests.storage
+          value: 5Gi
+
+  - it: lets a claim size be overridden
+    set:
+      storage.cache.size: 20Gi
+    documentSelector:
+      path: metadata.name
+      value: nilchela-cache
+    asserts:
+      - equal:
+          path: spec.resources.requests.storage
+          value: 20Gi
+
+  - it: annotates created claims so an uninstall does not delete them
+    documentSelector:
+      path: metadata.name
+      value: nilchela-data
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+
+  - it: adopts an existing claim instead of creating one, for every volume
+    set:
+      storage.tools.existingClaim: zeroclaw-tools
+      storage.cache.existingClaim: zeroclaw-cache
+      storage.data.existingClaim: zeroclaw-data
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tools
+            persistentVolumeClaim:
+              claimName: zeroclaw-tools
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: cache
+            persistentVolumeClaim:
+              claimName: zeroclaw-cache
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: zeroclaw-data
+
+  # ---------------------------------------------------------------------------
+  # scheduling passthrough
+  # ---------------------------------------------------------------------------
+  - it: passes scheduling through to the pod spec unchanged
+    set:
+      scheduling.nodeSelector.disktype: ssd
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector.disktype
+          value: ssd
+
+  # ---------------------------------------------------------------------------
+  # the pod model's fixed halves
+  # ---------------------------------------------------------------------------
+  - it: runs the main container as the non-root agent
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 65534
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+
+  - it: mounts /tools read-only for the agent
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tools
+            mountPath: /tools
+            readOnly: true
+
+  - it: mounts /tools writable for the root installer
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[1].volumeMounts
+          content:
+            name: tools
+            mountPath: /tools
+
+  - it: orders fix-ownership before install-tools
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: fix-ownership
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: install-tools
+
+  - it: runs the installer as root and chowns the write targets
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.template.spec.initContainers[0].command[0]
+          value: chown
+      - equal:
+          path: spec.template.spec.initContainers[0].args[0]
+          value: 65534:65534
+
+  - it: installs toolchains with mise
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[1].command[0]
+          value: mise
+      - equal:
+          path: spec.template.spec.initContainers[1].args[0]
+          value: install

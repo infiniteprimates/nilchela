@@ -1,0 +1,40 @@
+apiVersion: v2
+name: nilchela
+description: |
+  Deploy nilchela — a thin, opinionated ZeroClaw dev image that installs
+  mise-managed toolchains at runtime instead of baking them into the image.
+type: application
+
+# Chart version — bump on any chart change (SemVer). Starts at 0.0.0 to match
+# the image's own versioning, which also begins at v0.0.0.
+version: 0.0.0
+
+# Application version — the nilchela IMAGE version this chart deploys by
+# default. An empty `image.tag` in values.yaml means this value;
+# tests/chart_contract.py fails the build if the two drift.
+appVersion: "0.0.3"
+
+# The bjw-s `common` library requires Kubernetes >= 1.28. Declared here so Helm
+# refuses early with a clear message rather than failing inside a template.
+kubeVersion: ">=1.28.0-0"
+
+home: https://github.com/infiniteprimates/nilchela
+sources:
+  - https://github.com/infiniteprimates/nilchela
+
+maintainers:
+  - name: rawlink
+    url: https://github.com/rawlink
+
+# The dependency is `common` (type: library), NOT `app-template`. A library chart
+# has no values interface of its own — it is a set of named templates. This
+# chart's templates/resources.yaml calls `bjw-s.common.loader.all`, and the
+# context it passes is built by templates/_translate.tpl from the native values
+# in values.yaml. That translation is the whole mechanism; see README.md.
+dependencies:
+  - name: common
+    # Pinned exactly, not a range: the library's template API is versioned, and
+    # a silent minor bump can rename or restructure what the loader renders.
+    # Bump deliberately and re-run tests/chart_contract.py.
+    version: 5.1.0
+    repository: https://bjw-s-labs.github.io/helm-charts
