@@ -93,9 +93,16 @@ tests:
             name: ZEROCLAW_gateway__allow_public_bind
             value: "true"
 
-  - it: renders no Service and no bind env when the Service is disabled
+  # A probe is the *other* thing that needs the pod reachable: the kubelet dials
+  # the pod IP, so the derived bind is driven by `or $svcEnabled $probesOn`, not by
+  # the Service alone. To assert the Service's own contribution to the bind, both
+  # sources have to be off -- with the shipped defaults (probes on) this expects an
+  # env block, which is the suite's next case, not this one.
+  - it: renders no Service and no bind env when nothing needs the pod reachable
     set:
       gateway.service.enabled: false
+      probes.liveness.enabled: false
+      probes.readiness.enabled: false
     documentSelector:
       path: kind
       value: StatefulSet
