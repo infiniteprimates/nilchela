@@ -1,0 +1,22 @@
+# Test-harness dependencies for charts/nilchela.
+#
+# The contract test runs against a *rendered* chart, so it is CI tooling rather
+# than chart content -- `.helmignore` excludes tests/ from the packaged archive.
+#
+# One invocation, local and CI alike:
+#
+#   uv run --locked --project charts/nilchela/tests \
+#     python3 charts/nilchela/tests/chart_contract.py <render> --chart-dir charts/nilchela
+#
+# pyyaml is constrained here and pinned exactly by uv.lock. `--locked` asserts the
+# lock is up to date and fails the build otherwise, so a dependency cannot drift
+# in without the lock being regenerated deliberately.
+#
+# requires-python carries a real floor: the test parses the rendered mise.toml
+# with tomllib, which is stdlib only from 3.11.
+[project]
+name = "nilchela-chart-tests"
+version = "0.0.0"
+description = "Contract test harness for the nilchela Helm chart, run against a real render."
+requires-python = ">=3.11"
+dependencies = ["pyyaml>=6.0.3"]
