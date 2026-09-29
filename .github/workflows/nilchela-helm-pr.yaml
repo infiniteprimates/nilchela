@@ -1,12 +1,14 @@
-# Chart validation for charts/nilchela.
+# Helm chart validation for charts/nilchela.
 #
 # HUMAN-COMMITTED BY DESIGN. The GitHub App has no `workflows` permission, so an
 # agent cannot create or update this file -- GitHub rejects the push outright:
 #
 #   refusing to allow a GitHub App to create or update workflow
-#   `.github/workflows/chart.yaml` without `workflows` permission
+#   `.github/workflows/nilchela-helm-pr.yaml` without `workflows` permission
 #
-# Check it in at .github/workflows/chart.yaml to enable the gate.
+# Landing order matters. This job is only correct once charts/nilchela is on the
+# base branch; if the workflow merges first it is red on every PR until the chart
+# lands, and once it is a required check that blocks everything.
 #
 # Layers, cheapest first:
 #   1. helm lint                      chart conventions and template syntax
@@ -29,8 +31,33 @@
 # ships no storage provisioner while the chart renders three retained PVCs.
 # That belongs on a schedule or behind a label, not on every PR.
 #
-# Not path-filtered: a path-filtered required check blocks every PR that touches
-# anything else, and this job is seconds long.
+# Decisions this file encodes:
+#
+#   * NOT path-filtered, and intended to become a required check. GitHub leaves a
+#     required check Pending when its workflow is skipped by a path filter, which
+#     blocks every PR that does not touch charts/. Required and path-filtered are
+#     mutually exclusive here, so this runs on everything: a live gate is worth
+#     more than a saved run, and the job is seconds long.
+#
+#   * The bjw-s dependency is NOT vendored. `helm dependency build` fetches it per
+#     run, so bjw-s or GitHub being unavailable fails this job and, once required,
+#     blocks merges. Accepted deliberately -- the failure is loud and cheap to
+#     diagnose, and a build artefact does not belong in the repository. Chart.lock
+#     pins the resolved version and digest, so the dependency cannot move without
+#     a deliberate commit.
+#
+#   * The `helm repo add` is load-bearing, not decorative. Chart.lock records the
+#     repository URL, so a runner without it defined fails with "no repository
+#     definition for ...". --force-update makes the step idempotent.
+#
+#   * Actions are pinned to major-version tags, not commit SHAs, by decision:
+#     major updates carry bug and security fixes, and SHA pinning trades that for
+#     staleness and maintenance burden. (The kubeconform tarball below is
+#     hash-pinned because it has no such update channel -- under separate
+#     discussion.)
+#
+#   * timeout-minutes is a fail-fast bound, not a tuned budget. A cold run is well
+#     under a minute; the long pole is three network fetches.
 
 name: chart
 
@@ -59,6 +86,7 @@ jobs:
   chart:
     name: chart
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,7 +96,14 @@ jobs:
         with:
           version: ${{ env.HELM_VERSION }}
 
+      - name: Add the bjw-s chart repository
+        run: >
+          helm repo add --force-update bjw-s
+          https://bjw-s-labs.github.io/helm-charts
+
       - name: Resolve chart dependencies
+        # Lock-driven: Chart.lock pins common to an exact version and digest, and
+        # helm refuses to proceed if the lock does not match Chart.yaml.
         run: helm dependency build charts/nilchela
 
       - name: Lint
@@ -114,11 +149,17 @@ jobs:
         # nothing, so keep the suites and this step in the same commit.
         run: helm unittest charts/nilchela
 
-      - name: Install contract-test dependency
-        run: python3 -m pip install --quiet --disable-pip-version-check pyyaml
+      - name: Set up uv
+        # uv resolves and runs the contract test against charts/nilchela/tests,
+        # which pins pyyaml in uv.lock. Same invocation locally and here.
+        uses: astral-sh/setup-uv@v10
 
       - name: Contract test (rendered pod model)
+        # --locked asserts uv.lock is in sync with pyproject.toml and fails the
+        # build otherwise, so the harness cannot silently re-resolve.
         run: >
+          uv run --locked
+          --project charts/nilchela/tests
           python3 charts/nilchela/tests/chart_contract.py
           "${RUNNER_TEMP}/rendered.yaml"
           --chart-dir charts/nilchela
