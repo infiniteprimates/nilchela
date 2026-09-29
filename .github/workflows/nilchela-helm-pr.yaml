@@ -1,0 +1,124 @@
+# Chart validation for charts/nilchela.
+#
+# HUMAN-COMMITTED BY DESIGN. The GitHub App has no `workflows` permission, so an
+# agent cannot create or update this file -- GitHub rejects the push outright:
+#
+#   refusing to allow a GitHub App to create or update workflow
+#   `.github/workflows/chart.yaml` without `workflows` permission
+#
+# Check it in at .github/workflows/chart.yaml to enable the gate.
+#
+# Layers, cheapest first:
+#   1. helm lint                      chart conventions and template syntax
+#   2. kubeconform                    rendered output vs the Kubernetes API
+#                                     schemas -- the one thing nothing else here
+#                                     covers: deprecated or malformed API objects
+#   3. helm unittest                  template logic in templates/_translate.tpl
+#   4. tests/chart_contract.py        relational invariants of the rendered pod model
+#
+# 3 and 4 overlap in spirit, not in reach. helm-unittest asserts a path against a
+# literal; the contract test asserts *relations* between two rendered locations
+# ("main and install-tools mount the same volume at /tools"), ordering between
+# initContainers, absence (no probes by default), a value parsed out of a TOML
+# document embedded in a rendered ConfigMap, and drift between the rendered image
+# tag and Chart.yaml's appVersion. Neither tool subsumes the other; keep both.
+#
+# Deliberately NOT here: `ct install` against a kind cluster. Two costs specific
+# to *this* chart -- the image installs its toolchains at runtime over the network
+# (slow and flaky per-PR, and it tests the network more than the chart), and kind
+# ships no storage provisioner while the chart renders three retained PVCs.
+# That belongs on a schedule or behind a label, not on every PR.
+#
+# Not path-filtered: a path-filtered required check blocks every PR that touches
+# anything else, and this job is seconds long.
+
+name: chart
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned to the versions the chart was actually rendered and verified against.
+  HELM_VERSION: v4.3.0
+  KUBECONFORM_VERSION: v0.8.0
+  HELM_UNITTEST_VERSION: v1.1.2
+
+  # sha256 of kubeconform-linux-amd64.tar.gz, taken from the release's asset
+  # metadata. Pinned here rather than fetched, so a swapped release asset fails
+  # the job instead of being silently trusted.
+  KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+
+  # Chart.yaml declares kubeVersion ">=1.28.0-0" (the `common` library's floor),
+  # so validate against the floor we claim to support, not the newest API.
+  KUBERNETES_VERSION: "1.28.0"
+
+jobs:
+  chart:
+    name: chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Resolve chart dependencies
+        run: helm dependency build charts/nilchela
+
+      - name: Lint
+        run: helm lint charts/nilchela
+
+      - name: Render
+        run: >
+          helm template nilchela charts/nilchela --namespace nilchela
+          > "${RUNNER_TEMP}/rendered.yaml"
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          base="https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}"
+          curl -sSfL -o "${RUNNER_TEMP}/kubeconform.tar.gz" \
+            "${base}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  ${RUNNER_TEMP}/kubeconform.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/kubeconform.tar.gz" -C "${RUNNER_TEMP}" kubeconform
+
+      - name: Validate rendered manifests against Kubernetes schemas
+        # No -ignore-missing-schemas: this chart renders no CRDs, so an unknown
+        # kind should fail loudly rather than be skipped.
+        run: >
+          "${RUNNER_TEMP}/kubeconform"
+          -strict -summary
+          -kubernetes-version "${KUBERNETES_VERSION}"
+          "${RUNNER_TEMP}/rendered.yaml"
+
+      - name: Install helm-unittest
+        # --verify=false because the plugin's provenance signature is not set up
+        # for this repo; the plugin is pinned to an exact release instead. If the
+        # signature is ever configured, drop the flag and let it verify.
+        run: >
+          helm plugin install
+          --version "${HELM_UNITTEST_VERSION}"
+          --verify=false
+          https://github.com/helm-unittest/helm-unittest
+
+      - name: Template-logic tests
+        # The tests/*_test.yaml suites are committed, so this layer is live:
+        # helm-unittest exits non-zero on a failed suite (and renders the chart
+        # with no cluster). A chart with zero suites would exit 0 having tested
+        # nothing, so keep the suites and this step in the same commit.
+        run: helm unittest charts/nilchela
+
+      - name: Install contract-test dependency
+        run: python3 -m pip install --quiet --disable-pip-version-check pyyaml
+
+      - name: Contract test (rendered pod model)
+        run: >
+          python3 charts/nilchela/tests/chart_contract.py
+          "${RUNNER_TEMP}/rendered.yaml"
+          --chart-dir charts/nilchela
