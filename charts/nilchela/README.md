@@ -7,7 +7,7 @@ ownership model the image expects, and a ClusterIP Service in front of the
 ZeroClaw gateway.
 
 - Chart version: `0.0.0` · App version: `0.0.3` (the image tag it deploys)
-- Requires Kubernetes `>= 1.28` (the render library's floor) and Helm 3.x
+- Requires Kubernetes `>= 1.31` (the render library's floor) and Helm 3.x
 
 ```bash
 helm dependency build charts/nilchela
@@ -421,14 +421,14 @@ helm dependency build charts/nilchela
 helm lint charts/nilchela
 helm unittest charts/nilchela
 helm template nilchela charts/nilchela --namespace nilchela > /tmp/rendered.yaml
-kubeconform -strict -summary -kubernetes-version 1.28.0 /tmp/rendered.yaml
+kubeconform -strict -summary -kubernetes-version 1.31.0 /tmp/rendered.yaml
 uv run --with pyyaml python3 charts/nilchela/tests/chart_contract.py \
   /tmp/rendered.yaml --chart-dir charts/nilchela
 ```
 
-`kubeconform` is run at `1.28.0` — the floor `Chart.yaml` claims — and without
-`-ignore-missing-schemas`, so an unknown kind fails loudly rather than being
-skipped.
+`kubeconform` is run at `1.31.0` — the floor `Chart.yaml` claims, which is the
+`common` library's own floor — and without `-ignore-missing-schemas`, so an
+unknown kind fails loudly rather than being skipped.
 
 Deliberately not on that list: `ct install` against a kind cluster. Two costs
 are specific to *this* chart — the image installs its toolchains at runtime over

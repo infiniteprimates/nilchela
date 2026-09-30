@@ -72,7 +72,7 @@ helm upgrade nilchela charts/nilchela \
   --set mise.tools.go=1.27.1 --set mise.tools.node=22.11.0
 ```
 
-Use the release name `nilchela` and you get StatefulSet `nilchela` with PVCs `nilchela-tools`, `nilchela-cache`, and `nilchela-data`. Requires Kubernetes `>= 1.28` and Helm 3.x.
+Use the release name `nilchela` and you get StatefulSet `nilchela` with PVCs `nilchela-tools`, `nilchela-cache`, and `nilchela-data`. Requires Kubernetes `>= 1.31` and Helm 3.x.
 
 Full values reference, naming rules, and the reasoning behind the no-`fsGroup` ownership model: [`charts/nilchela/README.md`](charts/nilchela/README.md). Your cluster's specifics — namespace, storage classes, resources — stay in your own values file or infra repo; the chart only wants values.
 
