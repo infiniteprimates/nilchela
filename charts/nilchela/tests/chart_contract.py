@@ -18,6 +18,13 @@ nothing, it inspects what Helm produced. `--check-package` is the one exception
 -- it shells out to `helm package` into a temporary directory to inspect the
 artifact a recipient would actually receive. Everything else is read-only.
 
+It also carries one *metadata* tripwire, because it is the only read-only check
+that already runs on every PR and already reads `Chart.yaml`: the chart's
+declared `kubeVersion` floor must not sit below the floor declared by the
+vendored render library. Our floor is a claim of ours, set deliberately; the
+dependency's is a *tripwire input, never a source*, and this check copies no
+number anywhere. See `check_kube_floor`.
+
 Usage:
     helm template nilchela charts/nilchela > /tmp/rendered.yaml
     python3 charts/nilchela/tests/chart_contract.py /tmp/rendered.yaml \
@@ -36,8 +43,10 @@ second render made with toolchain env set (see check_toolenv), and
 from __future__ import annotations
 
 import argparse
+import glob
 import hashlib
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -619,6 +628,115 @@ def check_probes(manifests: list[dict], checker: Checker) -> None:
     )
 
 
+def reduce_floor(constraint: str) -> tuple[int, int, int] | None:
+    """Reduce a `kubeVersion` constraint to the floor it names, or None.
+
+    Only a lower bound is meaningful here, and only two spellings of one are
+    read: `>=X.Y.Z…` and a bare or range-start `X.Y.Z` (a hyphen range like
+    `1.31.0 - 1.33.0` names its floor first). Everything else — an upper bound
+    (`<1.33.0-0`), an exclusive floor (`>1.31.0`) — returns None on purpose, and
+    the caller reports it. A constraint this check cannot read must fail, not be
+    guessed at: guessing is how the chart came to claim 1.28 while the library
+    that renders it declared 1.31.
+    """
+    stripped = constraint.strip()
+    match = re.match(r"^>=\s*v?(\d+)\.(\d+)\.(\d+)", stripped)
+    if not match:
+        match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)(?:\s*-\s*[^-]+)?$", stripped)
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
+
+def parse_kube_floor(declared: object, source: str, checker: Checker) -> tuple[int, int, int] | None:
+    if not declared:
+        checker.check(f"{source} declares a kubeVersion", False, "none declared")
+        return None
+    floor = reduce_floor(str(declared))
+    checker.check(
+        f"{source} kubeVersion declares a floor this check can read",
+        floor is not None,
+        f"{declared!r} has no lower bound to read — extend reduce_floor rather "
+        "than let the floor go unchecked",
+    )
+    return floor
+
+
+def read_kube_floor(path: str, source: str, checker: Checker) -> tuple[int, int, int] | None:
+    with open(path, encoding="utf-8") as handle:
+        return parse_kube_floor((yaml.safe_load(handle) or {}).get("kubeVersion"), source, checker)
+
+
+def dependency_floors(
+    chart_dir: str, checker: Checker
+) -> list[tuple[str, tuple[int, int, int]]]:
+    """The vendored dependencies' declared floors, read from the archives
+    `helm dependency build` leaves at `charts/<name>-<version>.tgz`.
+
+    Read from the *archive*, not a working copy: that is what the render uses,
+    and `Chart.lock` pins it to an exact version and digest, so the input is
+    fixed for as long as the lock is.
+    """
+    with open(f"{chart_dir}/Chart.yaml", encoding="utf-8") as handle:
+        dependencies = (yaml.safe_load(handle) or {}).get("dependencies") or []
+    floors: list[tuple[str, tuple[int, int, int]]] = []
+    for dependency in dependencies:
+        name = str((dependency or {}).get("name"))
+        archives = sorted(glob.glob(f"{chart_dir}/charts/{name}-*.tgz"))
+        checker.check(
+            f"the vendored {name} dependency is present",
+            bool(archives),
+            f"no {name}-*.tgz — run `helm dependency build {chart_dir}` first",
+        )
+        if not archives:
+            continue
+        with tarfile.open(archives[-1]) as tarball:
+            member = next(
+                (
+                    candidate
+                    for candidate in tarball.getmembers()
+                    if candidate.name in (f"{name}/Chart.yaml", "Chart.yaml")
+                ),
+                None,
+            )
+            payload = tarball.extractfile(member).read() if member else b""
+        floor = parse_kube_floor(
+            (yaml.safe_load(payload.decode("utf-8")) or {}).get("kubeVersion")
+            if member
+            else None,
+            f"the vendored {name}",
+            checker,
+        )
+        if floor is not None:
+            floors.append((name, floor))
+    return floors
+
+
+def check_kube_floor(chart_dir: str, checker: Checker) -> None:
+    """Our declared Kubernetes floor must not sit below the library's.
+
+    This says nothing about whether our number is *right* — the layer above it
+    (kubeconform, validating the render at this same floor) is what tests the
+    claim. This is a tripwire with one job: a dependency bump that raises the
+    library's own floor otherwise leaves our claim silently too low, and this is
+    the only place that reads both numbers. It fires on a deliberate lock bump,
+    never spontaneously, and it copies nothing — the dependency's number is an
+    input to a decision, never the source of ours.
+    """
+    ours = read_kube_floor(f"{chart_dir}/Chart.yaml", "the chart", checker)
+    if ours is None:
+        return
+    for name, theirs in dependency_floors(chart_dir, checker):
+        checker.check(
+            f"our kubeVersion floor ({'.'.join(map(str, ours))}) is not below "
+            f"{name}'s ({'.'.join(map(str, theirs))})",
+            ours >= theirs,
+            "decide: raise our floor in Chart.yaml (and KUBERNETES_VERSION in the "
+            "workflow), pin or drop the dependency, or record why we knowingly "
+            "diverge — do not simply copy theirs",
+        )
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rendered", help="output of `helm template`")
@@ -668,6 +786,8 @@ def main(argv: list[str]) -> int:
     if args.probes_render:
         print(f"probes: {args.probes_render}\n")
         check_probes(load_manifests(args.probes_render), checker)
+    print(f"kubernetes floor: {args.chart_dir}\n")
+    check_kube_floor(args.chart_dir, checker)
     return checker.report()
 
 

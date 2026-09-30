@@ -20,6 +20,11 @@ mise.local.toml
 # leading slash, so the pattern matches at any depth.
 .venv/
 
+# Byte-compiled cache. CI runs the harness as a script, which leaves none — but
+# anything that *imports* it (a local runner, a future pytest collection) leaves
+# one beside the source, and it must never be committed.
+__pycache__/
+
 # Helm chart dependency output. `helm dependency build` resolves the bjw-s
 # `common` library into charts/<chart>/charts/; that archive is reproducible from
 # the pinned version in Chart.yaml, so it is not committed.
