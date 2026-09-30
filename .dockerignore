@@ -7,8 +7,12 @@
 .gitignore
 .dockerignore
 README.md
-LICENSE*
 *.md
+
+# LICENSE files are deliberately NOT excluded. The image copies LICENSE-MIT,
+# LICENSE-APACHE and NOTICE into /usr/share/doc/nilchela/ so the license
+# obligation travels with the published artefact. A `LICENSE*` exclusion here
+# would make that COPY fail.
 
 # Helm chart, docs, and their assets — the image build needs none of them, and a
 # resolved chart carries a dependency archive that has no business in the build

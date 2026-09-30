@@ -30,10 +30,33 @@
 ARG ZEROCLAW_VERSION=0.8.5
 FROM ghcr.io/zeroclaw-labs/zeroclaw:v${ZEROCLAW_VERSION}-debian
 
+# Re-declared inside the stage on purpose: an ARG set before FROM is not visible
+# to instructions after it, so the label below would expand to an empty string.
+ARG ZEROCLAW_VERSION
+
+# ---- Provenance labels ------------------------------------------------------
+# base.name is the OCI annotation for the base image reference, derived from the
+# ARG above so it cannot drift from the FROM line. base.digest is deliberately
+# absent: it can only be read from the registry at publish time, and a digest
+# nobody observed is worse than no digest at all.
+LABEL org.opencontainers.image.title="nilchela" \
+      org.opencontainers.image.description="Thin, opinionated ZeroClaw dev image; installs mise-managed toolchains at runtime." \
+      org.opencontainers.image.source="https://github.com/infiniteprimates/nilchela" \
+      org.opencontainers.image.licenses="MIT OR Apache-2.0" \
+      org.opencontainers.image.base.name="ghcr.io/zeroclaw-labs/zeroclaw:v${ZEROCLAW_VERSION}-debian"
+
 # mise CLI version — pin to the current release (bump deliberately).
 ARG MISE_VERSION=v2026.9.3
 
 USER root
+
+# ---- License obligations travel with the artefact --------------------------
+# This image redistributes the ZeroClaw base image, so Apache-2.0 §4 conditions
+# attach: recipients must receive the license text and the retained NOTICE. Copied
+# into the image rather than left in the repo, so the obligation survives being
+# pulled by someone who never sees this repository. .dockerignore deliberately
+# does not exclude these paths — a `LICENSE*` rule there would fail this COPY.
+COPY LICENSE-MIT LICENSE-APACHE NOTICE /usr/share/doc/nilchela/
 
 # ---- OS-level tooling (bash/curl/git already in base) ----------------------
 # build-essential + pkg-config = native-compile baseline. Deliberately NOT

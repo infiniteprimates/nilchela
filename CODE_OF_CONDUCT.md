@@ -1,5 +1,13 @@
 # Contributor Covenant Code of Conduct
 
+> **Modification notice.** Adapted from the Contributor Covenant, version 2.1.
+> This copy has been **modified**: the *Enforcement Responsibilities*, *Scope*,
+> and *Enforcement Guidelines* sections have been removed, and the *Enforcement*
+> section has been shortened. The remaining text is unmodified.
+>
+> This document is licensed CC BY-SA 4.0, not the project's `MIT OR Apache-2.0`.
+> See [License](#license).
+
 ## Our Pledge
 
 We as members, contributors, and leaders pledge to make participation in our
@@ -50,3 +58,16 @@ version 2.1, available at
 
 [homepage]: https://www.contributor-covenant.org
 [v2.1]: https://www.contributor-covenant.org/version/2/1/code_of_conduct.html
+
+## License
+
+This document is adapted from the Contributor Covenant, version 2.1, and is
+licensed under the [Creative Commons Attribution-ShareAlike 4.0 International
+License][cc-by-sa] (CC BY-SA 4.0) — the license the Contributor Covenant carries
+and the license it requires for adaptations.
+
+It is the only file in this repository under a copyleft license. Everything else
+in this repository is `MIT OR Apache-2.0`; see [`NOTICE`](NOTICE) and
+[`TRADEMARK.md`](TRADEMARK.md).
+
+[cc-by-sa]: https://creativecommons.org/licenses/by-sa/4.0/
