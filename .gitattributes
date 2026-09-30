@@ -1,0 +1,13 @@
+# The licence texts are asserted byte-for-byte by the chart contract test
+# (charts/nilchela/tests/chart_contract.py, check_licenses): it pins the sha256
+# of the root files and compares the chart-local copies against them. On a
+# Windows checkout, text normalisation would rewrite those bytes and both checks
+# would fail for a non-reason -- and the packaged chart would carry the rewritten
+# text. `text eol=lf` pins the working tree to LF on every platform and keeps the
+# files diffable, which `-text` would not.
+#
+# Unanchored patterns match at every directory level, so these three lines cover
+# both the root copies and charts/nilchela/.
+LICENSE-MIT text eol=lf
+LICENSE-APACHE text eol=lf
+NOTICE text eol=lf
