@@ -55,7 +55,7 @@ Because the toolchains live in a volume rather than the image, rebuilding the im
 
 ### Kubernetes (Helm)
 
-This repo ships a reference chart at [`charts/nilchela`](charts/nilchela) — a nilchela-native values surface rendered by the [bjw-s `common`](https://bjw-s-labs.github.io/helm-charts/) library chart. It renders the StatefulSet, the three volumes, the `mise.toml` ConfigMap, and the ownership model described above. You never write `app-template` values: the keys are nilchela's own (`image.tag`, `tools.<name>`, `storage.tools.size`), and a key the chart does not recognise fails the render rather than being silently ignored.
+This repo ships a reference chart at [`charts/nilchela`](charts/nilchela) — a nilchela-native values surface rendered by the [bjw-s `common`](https://bjw-s-labs.github.io/helm-charts/) library chart. It renders the StatefulSet, the three volumes, the `mise.toml` ConfigMap, and the ownership model described above. You never write `app-template` values: the keys are nilchela's own (`image.tag`, `mise.tools.<name>`, `storage.tools.size`), and a key the chart does not recognise fails the render rather than being silently ignored.
 
 ```bash
 git clone https://github.com/infiniteprimates/nilchela.git
@@ -69,7 +69,7 @@ The chart installs **no toolchains** — nothing is pinned until you say so. Pin
 
 ```bash
 helm upgrade nilchela charts/nilchela \
-  --set tools.go=1.27.1 --set tools.node=22.11.0
+  --set mise.tools.go=1.27.1 --set mise.tools.node=22.11.0
 ```
 
 Use the release name `nilchela` and you get StatefulSet `nilchela` with PVCs `nilchela-tools`, `nilchela-cache`, and `nilchela-data`. Requires Kubernetes `>= 1.31` and Helm 3.x.
@@ -126,7 +126,16 @@ QA is done against a locally built image before any deploy: build with `docker b
 
 ## License
 
-MIT (see [LICENSE](LICENSE)). This project layers on the [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) base image (MIT OR Apache-2.0) and [mise](https://github.com/jdx/mise) (MIT).
+nilchela is dual-licensed under **MIT OR Apache-2.0** — use either, at your option:
+
+- [`LICENSE-MIT`](LICENSE-MIT)
+- [`LICENSE-APACHE`](LICENSE-APACHE)
+
+This project layers on the [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) base image (MIT OR Apache-2.0) and [mise](https://github.com/jdx/mise) (MIT). Published images **redistribute** ZeroClaw, so [`NOTICE`](NOTICE) reproduces the upstream notice in full and lists every third-party component. The name and logo are covered separately from the code license — see [`TRADEMARK.md`](TRADEMARK.md).
+
+One file is not under that license: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) is adapted from the Contributor Covenant and remains under CC BY-SA 4.0.
+
+Everything here is provided **as is**, without warranty or condition of any kind; the licenses carry the operative terms, including the warranty disclaimer and the liability limitation.
 
 ---
 

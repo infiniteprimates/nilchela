@@ -13,13 +13,19 @@ faithful translation is a claim about what the library renders, and the only
 place that claim can be checked is here. This runs on every PR and on every
 `common` bump.
 
-Deliberately dependency-light (PyYAML only) and read-only: it renders nothing,
-it inspects what Helm produced.
+Deliberately dependency-light (PyYAML plus the standard library): it renders
+nothing, it inspects what Helm produced. `--check-package` is the one exception
+-- it shells out to `helm package` into a temporary directory to inspect the
+artifact a recipient would actually receive. Everything else is read-only.
 
 Usage:
     helm template nilchela charts/nilchela > /tmp/rendered.yaml
     python3 charts/nilchela/tests/chart_contract.py /tmp/rendered.yaml \
         --chart-dir charts/nilchela --release-name nilchela
+
+The licence checks run unconditionally, before the render checks, and only need
+the two trees -- so they hold even if the render is wrong. Add --check-package
+(and a `helm dependency build` first) to assert the packaged artifact too.
 
 Add --toolenv-render to also assert the `mise.env` -> `[env]` mapping against a
 second render made with toolchain env set (see check_toolenv), and
@@ -30,7 +36,12 @@ second render made with toolchain env set (see check_toolenv), and
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
+import subprocess
 import sys
+import tarfile
+import tempfile
 import tomllib
 
 import yaml
@@ -41,6 +52,22 @@ CONFIG_PATH = "/config"
 CACHE_PATH = "/cache"
 DATA_PATH = "/zeroclaw-data"
 GATEWAY_PORT = 42617
+
+# The three files Apache-2.0 §4 obliges us to hand to anyone who receives the
+# packaged chart. They exist twice on purpose: once at the repo root (where a
+# reader looks for them) and once inside charts/nilchela (because `helm package`
+# walks only the chart directory -- there is no include-from-outside, and a
+# published tarball is a redistribution). The duplication is load-bearing, so it
+# is asserted rather than trusted.
+#
+# The assertion is relational, not pinned: the chart copies are compared against
+# the root originals, and the packaged members against the root originals too.
+# No hash of the licence text is written down here. Editing a licence is a
+# deliberate act, and rewriting both copies to match is what a deliberate edit
+# looks like -- not a failure for a test to invent. What this does catch is one
+# copy moving without the other, a symlink standing in for a copy, and an
+# artifact that does not carry what the tree carries.
+LICENSE_FILES = ("LICENSE-MIT", "LICENSE-APACHE", "NOTICE")
 
 
 class Checker:
@@ -111,6 +138,117 @@ def read_default_tag(chart_dir: str) -> tuple[str | None, str | None]:
         str(app_version) if app_version is not None else None,
         str(tag) if tag is not None else None,
     )
+
+
+def sha256_of(path: str) -> str:
+    with open(path, "rb") as handle:
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
+def check_licenses(repo_root: str, chart_dir: str, checker: Checker) -> None:
+    """The chart-local licence copies are real files, byte-identical to the root
+    originals.
+
+    Two distinct failure modes, and identity alone does not catch both:
+
+    * a *symlink* instead of a copy -- correct on Linux and macOS, because
+      `helm package` dereferences it, but a checkout with `core.symlinks=false`
+      (Windows without Developer Mode, or a GitHub source ZIP) materialises it as
+      a text file containing the target path, and the packaged chart then ships
+      a ~20-byte stub as the licence text, silently. The bytes look right in the
+      repo and wrong in the artifact, so identity alone does not catch it: the
+      type has to be asserted too.
+    * *drift* -- one copy edited, the other not.
+
+    A rewrite of *both* copies is not a failure: it is what a deliberate licence
+    change looks like, and the diff is where that gets reviewed.
+    """
+    for name in LICENSE_FILES:
+        root = os.path.join(repo_root, name)
+        local = os.path.join(chart_dir, name)
+        actual = os.path.normpath(root)
+
+        if not os.path.isfile(root) or os.path.islink(root):
+            checker.check(f"{name} is a regular file at the repo root", False, actual)
+            continue
+        chart_ok = os.path.isfile(local) and not os.path.islink(local)
+        checker.check(
+            f"{name} is a regular file inside the chart (not a symlink)",
+            chart_ok,
+            "missing" if not os.path.exists(local) else "a symlink",
+        )
+        if not chart_ok:
+            continue
+
+        digest = sha256_of(root)
+        local_digest = sha256_of(local)
+        checker.check(
+            f"{name}: the chart copy is byte-identical to the root copy",
+            local_digest == digest,
+            f"root={digest[:16]} chart={local_digest[:16]}",
+        )
+
+
+def check_packaged_licenses(repo_root: str, chart_dir: str, checker: Checker) -> None:
+    """The *packaged artifact* carries the three files, with the bytes the repo
+    carries.
+
+    This is the only layer that sees what a recipient actually receives. It is
+    what catches `.helmignore` growing a `LICENSE*` pattern, a dependency that
+    was never built, or -- when the copies are materialised by a build step
+    rather than committed -- the build step silently not running. The packaged
+    bytes are compared against the repo root's, which is the copy the tree layer
+    already ties the chart copies to; no hash is pinned here, so rewriting the
+    licence everywhere stays a deliberate act rather than a test failure.
+
+    Requires `helm` on PATH and the chart dependencies resolved in charts/:
+    `helm package` refuses to package a chart whose declared dependencies are
+    absent, so this runs after `helm dependency build`. Packaging is offline once
+    the dependency is vendored, and writes to a temporary directory.
+    """
+    with tempfile.TemporaryDirectory() as destination:
+        result = subprocess.run(
+            ["helm", "package", chart_dir, "--destination", destination],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            checker.check("helm package succeeds", False, result.stderr.strip())
+            return
+        archives = [name for name in os.listdir(destination) if name.endswith(".tgz")]
+        checker.check(
+            "helm package produces exactly one archive", len(archives) == 1, str(archives)
+        )
+        if len(archives) != 1:
+            return
+
+        chart_name = os.path.basename(os.path.normpath(chart_dir))
+        with tarfile.open(os.path.join(destination, archives[0])) as package:
+            members = {member.name: member for member in package.getmembers()}
+            for name in LICENSE_FILES:
+                member = members.get(f"{chart_name}/{name}")
+                checker.check(f"the packaged chart carries {name}", member is not None)
+                if member is None:
+                    continue
+                checker.check(f"{name} is a regular file in the packaged chart", member.isfile())
+                if not member.isfile():
+                    continue
+                payload = package.extractfile(member)
+                digest = hashlib.sha256(payload.read() if payload else b"").hexdigest()
+                root_path = os.path.join(repo_root, name)
+                if not os.path.isfile(root_path):
+                    checker.check(
+                        f"{name}: a root copy exists to compare the packaged bytes against",
+                        False,
+                        root_path,
+                    )
+                    continue
+                root_digest = sha256_of(root_path)
+                checker.check(
+                    f"{name}: the packaged bytes match the repo root",
+                    digest == root_digest,
+                    f"root={root_digest[:16]} packaged={digest[:16]}",
+                )
 
 
 def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
@@ -494,10 +632,35 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--chart-dir", default="charts/nilchela")
     parser.add_argument("--release-name", default="nilchela")
+    parser.add_argument(
+        "--repo-root",
+        default=None,
+        help=(
+            "where the root LICENSE-MIT / LICENSE-APACHE / NOTICE live "
+            "(default: derived from --chart-dir)"
+        ),
+    )
+    parser.add_argument(
+        "--check-package",
+        action="store_true",
+        help=(
+            "also assert the licence files inside a real `helm package` archive "
+            "(needs helm on PATH and the chart dependencies resolved)"
+        ),
+    )
     args = parser.parse_args(argv)
+    repo_root = args.repo_root or os.path.dirname(
+        os.path.dirname(os.path.abspath(args.chart_dir))
+    )
 
     print(f"chart contract: {args.chart_dir} -> {args.rendered}\n")
     checker = Checker()
+    print(f"licence integrity: {args.chart_dir} <-> {repo_root}")
+    check_licenses(repo_root, args.chart_dir, checker)
+    if args.check_package:
+        print("licence integrity: packaged artifact")
+        check_packaged_licenses(repo_root, args.chart_dir, checker)
+    print()
     run_checks(load_manifests(args.rendered), args.chart_dir, checker)
     if args.toolenv_render:
         print(f"mise.env mapping: {args.toolenv_render}\n")

@@ -1,0 +1,109 @@
+ZeroClaw
+Copyright 2025 ZeroClaw Labs
+
+This product includes software developed at ZeroClaw Labs (https://github.com/zeroclaw-labs).
+
+Official Repository
+===================
+
+The only official ZeroClaw repository is:
+https://github.com/zeroclaw-labs/zeroclaw
+
+Any other repository claiming to be ZeroClaw is unauthorized.
+See TRADEMARK.md for the full trademark policy.
+
+License
+=======
+
+This software is available under a dual-license model:
+
+  1. MIT License — see LICENSE-MIT
+  2. Apache License 2.0 — see LICENSE-APACHE
+
+You may use either license. Contributors grant rights under both.
+See CLA.md for the contributor license agreement.
+
+Contributors
+============
+
+This NOTICE file is maintained by repository automation.
+For the latest contributor list, see the repository contributors page:
+https://github.com/zeroclaw-labs/zeroclaw/graphs/contributors
+
+All contributors retain copyright ownership of their contributions.
+Contributions are permanently attributed in the repository commit history.
+Patent rights are protected for all contributors under Apache License 2.0.
+
+Third-Party Dependencies
+========================
+
+This project uses third-party libraries and components,
+each licensed under their respective terms.
+
+See Cargo.lock for a complete dependency list.
+
+Verifiable Intent Specification
+================================
+
+The src/verifiable_intent/ module is a Rust-native reimplementation based on
+the Verifiable Intent open specification and reference implementation:
+
+  Project:  Verifiable Intent (VI)
+  Author:   agent-intent
+  Source:   https://github.com/agent-intent/verifiable-intent
+  License:  Apache License, Version 2.0
+
+This implementation follows the VI specification design (SD-JWT layered
+credentials, constraint model, three-layer chain). No source code was copied
+from the reference implementation.
+-------------------------------------------------------------------------------
+nilchela
+Copyright 2026 Kenneth Rawlings
+
+Built with ❤️ by [rawlink](https://github.com/rawlink) on the official
+ZeroClaw base image (MIT OR Apache-2.0).
+
+nilchela is licensed under MIT OR Apache-2.0 -- see LICENSE-MIT and
+LICENSE-APACHE. You may use either license.
+
+This file carries two blocks. The ZeroClaw block above is reproduced unchanged
+from the software redistributed in our published images. This block covers
+nilchela itself. They are not under the same copyright holder.
+
+Independent project
+===================
+
+nilchela is an independent community project. It is not affiliated with,
+sponsored by, or endorsed by ZeroClaw Labs. The ZeroClaw name appears here, and
+in our documentation, only to identify the software nilchela is built on. No
+trademark rights are granted by us; see TRADEMARK.md.
+
+Redistribution of the ZeroClaw base image
+=========================================
+
+Published nilchela images are built FROM:
+
+  ghcr.io/zeroclaw-labs/zeroclaw:v0.8.5-debian
+
+that is, the `debian` variant of https://github.com/zeroclaw-labs/zeroclaw at
+tag v0.8.5. The tag is parameterised by ARG ZEROCLAW_VERSION in the Dockerfile.
+That image is redistributed as part of nilchela, which is why the ZeroClaw
+notice above is reproduced in full rather than merely linked.
+
+Third-party components
+======================
+
+  * ZeroClaw -- https://github.com/zeroclaw-labs/zeroclaw -- MIT OR Apache-2.0
+    The base image this project layers on and redistributes.
+
+  * mise -- https://github.com/jdx/mise -- MIT
+    Installed into the image at build time.
+
+  * bjw-s `common` -- https://github.com/bjw-s-labs/helm-charts -- Apache-2.0
+    Library chart, version 5.1.0, bundled inside charts/nilchela as a Helm
+    dependency and distributed in the packaged chart tarball. Its license text
+    travels with it, at common/LICENSE: verbatim Apache-2.0 terms plus an
+    appendix naming its own holder.
+
+None of the components above are distributed under nilchela's license. Each
+keeps its own.

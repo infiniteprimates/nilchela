@@ -30,6 +30,15 @@ maintainers:
   - name: rawlink
     url: https://github.com/rawlink
 
+# The chart is dual-licensed, same as the project. `license:` is NOT a valid key
+# in an apiVersion v2 Chart.yaml — helm lint warns "unknown field" — so the
+# licence is declared the supported way. Artifact Hub reads LICENSE files inside
+# the chart package by default; this annotation provides it explicitly and must
+# be a valid SPDX expression.
+# Source: https://artifacthub.io/docs/topics/annotations/helm/
+annotations:
+  artifacthub.io/license: MIT OR Apache-2.0
+
 # The dependency is `common` (type: library), NOT `app-template`. A library chart
 # has no values interface of its own — it is a set of named templates. This
 # chart's templates/resources.yaml calls `bjw-s.common.loader.all`, and the
