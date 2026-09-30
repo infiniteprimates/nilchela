@@ -14,9 +14,10 @@ place that claim can be checked is here. This runs on every PR and on every
 `common` bump.
 
 Deliberately dependency-light (PyYAML plus the standard library): it renders
-nothing, it inspects what Helm produced. `--check-package` is the one exception
--- it shells out to `helm package` into a temporary directory to inspect the
-artifact a recipient would actually receive. Everything else is read-only.
+nothing, it inspects what Helm produced. It shells out once -- to `helm package`,
+into a temporary directory, to inspect the artifact a recipient would actually
+receive. That needs the chart's dependencies resolved, which producing the render
+it inspects already required. Everything else is read-only.
 
 It also carries one *metadata* tripwire, because it is the only read-only check
 that already runs on every PR and already reads `Chart.yaml`: the chart's
@@ -30,9 +31,10 @@ Usage:
     python3 charts/nilchela/tests/chart_contract.py /tmp/rendered.yaml \
         --chart-dir charts/nilchela --release-name nilchela
 
-The licence checks run unconditionally, before the render checks, and only need
-the two trees -- so they hold even if the render is wrong. Add --check-package
-(and a `helm dependency build` first) to assert the packaged artifact too.
+The licence checks run unconditionally, before the render checks: against the
+two trees first, so they hold even if the render is wrong, and then against the
+archive `helm package` would hand a recipient. The other checks only read the
+renders.
 
 Add --toolenv-render to also assert the `mise.env` -> `[env]` mapping against a
 second render made with toolchain env set (see check_toolenv), and
@@ -758,14 +760,6 @@ def main(argv: list[str]) -> int:
             "(default: derived from --chart-dir)"
         ),
     )
-    parser.add_argument(
-        "--check-package",
-        action="store_true",
-        help=(
-            "also assert the licence files inside a real `helm package` archive "
-            "(needs helm on PATH and the chart dependencies resolved)"
-        ),
-    )
     args = parser.parse_args(argv)
     repo_root = args.repo_root or os.path.dirname(
         os.path.dirname(os.path.abspath(args.chart_dir))
@@ -775,9 +769,8 @@ def main(argv: list[str]) -> int:
     checker = Checker()
     print(f"licence integrity: {args.chart_dir} <-> {repo_root}")
     check_licenses(repo_root, args.chart_dir, checker)
-    if args.check_package:
-        print("licence integrity: packaged artifact")
-        check_packaged_licenses(repo_root, args.chart_dir, checker)
+    print("licence integrity: packaged artifact")
+    check_packaged_licenses(repo_root, args.chart_dir, checker)
     print()
     run_checks(load_manifests(args.rendered), args.chart_dir, checker)
     if args.toolenv_render:
