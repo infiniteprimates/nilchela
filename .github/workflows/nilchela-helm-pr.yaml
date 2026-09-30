@@ -9,8 +9,8 @@
 # Layers, cheapest first:
 #   1. helm lint                      chart conventions and template syntax
 #   2. kubeconform                    rendered output vs the Kubernetes API
-#                                     schemas -- the one thing nothing else here
-#                                     covers: deprecated or malformed API objects
+#                                     schemas, at both ends: the floor we claim
+#                                     and the newest schemas available
 #   3. helm unittest                  template logic in templates/_translate.tpl
 #   4. tests/chart_contract.py        relational invariants of the rendered pod model
 #
@@ -46,9 +46,14 @@ env:
   # the job instead of being silently trusted.
   KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
 
-  # Chart.yaml declares kubeVersion ">=1.28.0-0" (the `common` library's floor),
-  # so validate against the floor we claim to support, not the newest API.
-  KUBERNETES_VERSION: "1.28.0"
+  # The version the job renders and render-validates against: the *oldest*
+  # Kubernetes we support, not the newest API. Helm itself enforces the relation
+  # to the chart's own claim -- Render passes this to --kube-version, and Helm
+  # refuses any version below the chart's kubeVersion -- so this literal cannot
+  # silently fall under the floor the chart declares. Raise it when the chart's
+  # floor moves; the job fails loudly rather than validating against a version
+  # the chart no longer claims.
+  KUBERNETES_VERSION: "1.31.0"
 
 jobs:
   chart:
@@ -78,8 +83,15 @@ jobs:
         run: helm lint charts/nilchela
 
       - name: Render
+        # --kube-version does double duty. It puts the render and the kubeconform
+        # invocations below on the same version, and it hands Helm the chart's
+        # own kubeVersion check: sufficiency is evaluated by Helm, not compared
+        # by us. Unset, Helm renders at the *client's* Kubernetes version --
+        # which is how this job came to render at 1.37 while validating that
+        # same output against 1.28 schemas.
         run: >
           helm template nilchela charts/nilchela --namespace nilchela
+          --kube-version "${KUBERNETES_VERSION}"
           > "${RUNNER_TEMP}/rendered.yaml"
 
       - name: Install kubeconform
@@ -91,13 +103,26 @@ jobs:
           echo "${KUBECONFORM_SHA256}  ${RUNNER_TEMP}/kubeconform.tar.gz" | sha256sum -c -
           tar -xzf "${RUNNER_TEMP}/kubeconform.tar.gz" -C "${RUNNER_TEMP}" kubeconform
 
-      - name: Validate rendered manifests against Kubernetes schemas
+      - name: Validate rendered manifests against the claimed floor
         # No -ignore-missing-schemas: this chart renders no CRDs, so an unknown
         # kind should fail loudly rather than be skipped.
         run: >
           "${RUNNER_TEMP}/kubeconform"
           -strict -summary
           -kubernetes-version "${KUBERNETES_VERSION}"
+          "${RUNNER_TEMP}/rendered.yaml"
+
+      - name: Validate rendered manifests against the newest schemas
+        # The step above proves nothing we render is unknown to our *oldest*
+        # supported version. This one proves that nothing we render has been
+        # *removed* by a newer one -- the direction clusters actually move in.
+        # Same render, and deliberately no -kubernetes-version: kubeconform then
+        # validates against the newest schemas available. A second pinned literal
+        # would be a number nobody bumps, which is how the 1.28 floor outlived
+        # the library that required 1.31.
+        run: >
+          "${RUNNER_TEMP}/kubeconform"
+          -strict -summary
           "${RUNNER_TEMP}/rendered.yaml"
 
       - name: Install helm-unittest
@@ -115,6 +140,12 @@ jobs:
         # helm-unittest exits non-zero on a failed suite (and renders the chart
         # with no cluster). A chart with zero suites would exit 0 having tested
         # nothing, so keep the suites and this step in the same commit.
+        #
+        # Note: helm-unittest has no --kube-version flag, so this render cannot
+        # be pinned to the floor the way Render is -- it renders at the client's
+        # Kubernetes version. Harmless while nothing asserts something that
+        # varies by capabilities; if the library ever does, this layer and the
+        # kubeconform-validated render will disagree.
         run: helm unittest charts/nilchela
 
       - name: Set up uv
