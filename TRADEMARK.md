@@ -2,8 +2,9 @@
 
 This file covers the **nilchela** name and any logo or wordmark used for the
 project. It does not restate the software license — that is in
-[`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE`](LICENSE-APACHE) — and it is
-not a statement about anyone else's marks.
+[`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE`](LICENSE-APACHE) — except on
+the one point where the two are easy to confuse, the copyright in the logo file
+itself. It is not a statement about anyone else's marks.
 
 ## The code license grants no trademark rights
 
@@ -16,11 +17,31 @@ describing the origin of the work and reproducing the content of the NOTICE
 file. MIT is silent on the subject, which is not a grant either.
 
 Trademark rights in the name are held by the project's maintainer, Kenneth
-Rawlings, separately from the copyright in the code.
+Rawlings, separately from the copyright in the code and the artwork.
+
+## Copyright in the artwork
+
+The logo is a file in this repository,
+[`docs/assets/nilchela-logo.svg`](docs/assets/nilchela-logo.svg). The maintainer
+holds its copyright and offers it under the same `MIT OR Apache-2.0` grant as the
+rest of the project: you may copy, modify and redistribute it with the project,
+under either license.
+
+Copyright and trademark are different rights, and that grant is only the first of
+them. It gives you the file; it gives you no right to use the logo as a mark. The
+permissions and prohibitions below govern that, and they apply to the logo
+exactly as they apply to the name — a name is not copyrightable at all, so the
+trademark policy is the only thing protecting either of them.
+
+The logo is not carved out of the project license, deliberately: a carve-out
+would give the logo *more* protection than the name, through a body of law that
+does not address brand confusion. Trademark is what stops a fork passing itself
+off as this project; copyright over a logo does not.
 
 ## What you may do without asking
 
-**Nominative use** — using the name to refer to this project truthfully:
+**Nominative use** — using the name, or the logo, to refer to this project
+truthfully:
 
 - "deploy nilchela", "nilchela requires Kubernetes 1.31 or newer"
 - "based on nilchela", "a fork of nilchela", "compatible with nilchela"

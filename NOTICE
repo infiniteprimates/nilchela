@@ -66,6 +66,12 @@ ZeroClaw base image (MIT OR Apache-2.0).
 nilchela is licensed under MIT OR Apache-2.0 -- see LICENSE-MIT and
 LICENSE-APACHE. You may use either license.
 
+The nilchela logo is the file docs/assets/nilchela-logo.svg. Its copyright is
+held by the maintainer and it is offered under the same MIT OR Apache-2.0 grant
+as the rest of nilchela, so it may be copied, modified and redistributed with
+the project under either license. That grant is a copyright grant only: it
+conveys no right to use the nilchela name or logo as a mark. See TRADEMARK.md.
+
 This file carries two blocks. The ZeroClaw block above is reproduced unchanged
 from the software redistributed in our published images. This block covers
 nilchela itself. They are not under the same copyright holder.
