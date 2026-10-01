@@ -30,13 +30,10 @@ under either license.
 Copyright and trademark are different rights, and that grant is only the first of
 them. It gives you the file; it gives you no right to use the logo as a mark. The
 permissions and prohibitions below govern that, and they apply to the logo
-exactly as they apply to the name — a name is not copyrightable at all, so the
-trademark policy is the only thing protecting either of them.
+exactly as they apply to the name.
 
-The logo is not carved out of the project license, deliberately: a carve-out
-would give the logo *more* protection than the name, through a body of law that
-does not address brand confusion. Trademark is what stops a fork passing itself
-off as this project; copyright over a logo does not.
+The SVG says the same in its own metadata, so a copy of the artwork carries the
+terms with it.
 
 ## What you may do without asking
 
