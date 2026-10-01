@@ -19,7 +19,7 @@ See the README for the full local-emulation and deployment flow.
 
 ## Sign off your commits (DCO)
 
-There is **no CLA**. Contributions are accepted under the [Developer Certificate of Origin 1.1](https://developercertificate.org/) — the same `inbound = outbound` certification the Linux kernel uses. You keep the copyright in your contribution; you certify that you had the right to submit it.
+There is **no CLA** — see [`AUTHORS.md`](AUTHORS.md#contributors). Contributions are accepted under the [Developer Certificate of Origin 1.1](https://developercertificate.org/), the same `inbound = outbound` certification the Linux kernel uses: you certify that you had the right to submit what you send.
 
 Certify by adding a `Signed-off-by` line to every commit. Git does it for you:
 
@@ -78,7 +78,7 @@ By making a contribution to this project, I certify that:
 
 ## Automation
 
-Part of this project is written by AI agents (the ZeroClaw dev team) working under the maintainer's authority. They are tooling, not authors, and hold no copyright — see [`AUTHORS.md`](AUTHORS.md). That has two consequences for how commits are made:
+Part of this project is written by AI agents (the infiniteprimates agent team) working under the maintainer's authority. They are tooling, not authors — see [`AUTHORS.md`](AUTHORS.md#automation). That has two consequences for how commits are made:
 
 - **Agents never add `Signed-off-by`.** The sign-off is a first-person legal certification and a non-person cannot make one. Every agent-authored change is certified by a human — the maintainer — through the remediation path below.
 - **Agent commits carry an `Assisted-by:` trailer** naming the agent, instead:
@@ -122,7 +122,7 @@ Only sign off for someone whose authority you actually hold — you cannot certi
 
 A remediation commit moves the pull request's head, and the ruleset dismisses stale reviews on push. Approve **after** it lands, not before.
 
-> A failed DCO check also offers a **Set DCO to pass** override button. It is an escape hatch for a one-off; prefer a remediation commit, because the remediation commit is the certification recorded in git history, while the override lives only in GitHub's audit log.
+> A failed DCO check normally also offers a **Set DCO to pass** override button. It is disabled in this repo — see [`allowOverrideAction`](.github/dco.yml). A remediation commit is the only path, because it records the certification in git history while the override would record it only in GitHub's audit log. A maintainer can re-enable the button for a one-off by setting that key to `true`.
 
 ## Submitting changes
 

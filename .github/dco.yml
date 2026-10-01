@@ -14,10 +14,8 @@ allowRemediationCommits:
   individual: true
   thirdParty: true
 
-# The check's "Set DCO to pass" override button, left enabled. Stated explicitly
-# so the choice is deliberate rather than inherited from the default. It is an
-# escape hatch for a one-off; a remediation commit is preferred, because the
-# remediation commit is the certification recorded in git history while the
-# override is recorded only in GitHub's audit log. Set this to false to remove
-# the button.
-allowOverrideAction: true
+# The check's "Set DCO to pass" override button, disabled. A remediation commit
+# is preferred in every case: it puts the certification in git history, while the
+# override would put it only in GitHub's audit log. Set this to true to re-enable
+# the button as a one-off escape hatch.
+allowOverrideAction: false
