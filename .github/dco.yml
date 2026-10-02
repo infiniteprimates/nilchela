@@ -1,0 +1,21 @@
+# DCO enforcement, read by the cncf/dco2 GitHub App
+# (https://github.com/apps/dco-2). The format is dcoapp/app's, which dco2 reads
+# unchanged.
+#
+# Remediation commits retroactively add a missing `Signed-off-by` without
+# rewriting history, which is what lets an agent-authored branch be certified by
+# a human: agents never sign off (a non-person cannot make a first-person
+# certification), so the maintainer authors a third-party remediation commit on
+# the branch and signs it. See CONTRIBUTING.md -> Remediation.
+#
+# `thirdParty` requires `individual` to be enabled as well.
+
+allowRemediationCommits:
+  individual: true
+  thirdParty: true
+
+# The check's "Set DCO to pass" override button, disabled. A remediation commit
+# is preferred in every case: it puts the certification in git history, while the
+# override would put it only in GitHub's audit log. Set this to true to re-enable
+# the button as a one-off escape hatch.
+allowOverrideAction: false
