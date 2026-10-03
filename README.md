@@ -131,7 +131,7 @@ nilchela is dual-licensed under **MIT OR Apache-2.0** — use either, at your op
 - [`LICENSE-MIT`](LICENSE-MIT)
 - [`LICENSE-APACHE`](LICENSE-APACHE)
 
-This project layers on the [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) base image (MIT OR Apache-2.0) and [mise](https://github.com/jdx/mise) (MIT). Published images **redistribute** ZeroClaw, so [`NOTICE`](NOTICE) reproduces the upstream notice in full and lists every third-party component. The name and logo are covered separately from the code license — see [`TRADEMARK.md`](TRADEMARK.md).
+This project layers on the [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) base image (MIT OR Apache-2.0) and [mise](https://github.com/jdx/mise) (MIT). Published images **redistribute** ZeroClaw, so [`NOTICE`](NOTICE) reproduces the upstream notice in full and lists every third-party component. The logo file (`docs/assets/nilchela-logo.svg`) carries that same license; the nilchela name and logo **as brand identifiers** are governed separately — see [`TRADEMARK.md`](TRADEMARK.md).
 
 One file is not under that license: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) is adapted from the Contributor Covenant and remains under CC BY-SA 4.0.
 

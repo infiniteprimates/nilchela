@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  nilchela logo — docs/assets/nilchela-logo.svg
+
+  SPDX-FileCopyrightText: 2026 Kenneth Rawlings
+  SPDX-License-Identifier: MIT OR Apache-2.0
+
+  Copyright in this artwork is licensed under MIT OR Apache-2.0, the same grant
+  as the rest of nilchela: you may copy, modify and redistribute it with the
+  project, under either license. That is a copyright grant only, and it conveys
+  no right to use the nilchela name or this logo as a mark. See TRADEMARK.md.
+-->
 <svg
    viewBox="0 0 336.99966 224.00938"
    width="336.99966"
@@ -11,6 +22,32 @@
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
+  <title id="title">nilchela logo</title>
+  <desc id="desc">A cartoon claw gripping a hammer between two angle brackets.</desc>
+  <metadata id="metadata1">
+    <rdf:RDF
+       xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+       xmlns:dc="http://purl.org/dc/elements/1.1/"
+       xmlns:cc="http://creativecommons.org/ns#">
+      <cc:Work rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title>nilchela logo</dc:title>
+        <dc:creator>
+          <cc:Agent>
+            <dc:title>Kenneth Rawlings</dc:title>
+          </cc:Agent>
+        </dc:creator>
+        <dc:rights>
+          <cc:Agent>
+            <dc:title>Copyright 2026 Kenneth Rawlings. Licensed under MIT OR Apache-2.0; use either. Copyright grant only: it conveys no right to use the nilchela name or this logo as a mark. See TRADEMARK.md.</dc:title>
+          </cc:Agent>
+        </dc:rights>
+        <cc:license rdf:resource="https://spdx.org/licenses/MIT" />
+        <cc:license rdf:resource="https://spdx.org/licenses/Apache-2.0" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
   <sodipodi:namedview
      id="namedview16"
      pagecolor="#ffffff"
