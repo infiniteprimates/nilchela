@@ -27,7 +27,7 @@
 # ships no storage provisioner while the chart renders three retained PVCs.
 # That belongs on a schedule or behind a label, not on every PR.
 
-name: chart
+name: Nilchela Helm Chart PR
 
 on:
   pull_request:
@@ -57,7 +57,7 @@ env:
 
 jobs:
   chart:
-    name: chart
+    name: Chart PR
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

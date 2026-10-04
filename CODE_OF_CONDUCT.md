@@ -2,8 +2,9 @@
 
 > **Modification notice.** Adapted from the Contributor Covenant, version 2.1.
 > This copy has been **modified**: the *Enforcement Responsibilities*, *Scope*,
-> and *Enforcement Guidelines* sections have been removed, and the *Enforcement*
-> section has been shortened. The remaining text is unmodified.
+> and *Enforcement Guidelines* sections have been removed, the *Enforcement*
+> section has been shortened, and its reporting contact is still a placeholder
+> (`<pending>`). The remaining text is unmodified.
 >
 > This document is licensed CC BY-SA 4.0, not the project's `MIT OR Apache-2.0`.
 > See [License](#license).
@@ -44,8 +45,8 @@ Examples of unacceptable behavior include:
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement. All complaints
-will be reviewed and investigated promptly and fairly.
+reported to the community leaders responsible for enforcement at `<pending>`.
+All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.
