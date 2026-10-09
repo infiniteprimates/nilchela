@@ -106,7 +106,7 @@ Third-party components
     Installed into the image at build time.
 
   * bjw-s `common` -- https://github.com/bjw-s-labs/helm-charts -- Apache-2.0
-    Library chart, version 5.1.0, bundled inside charts/nilchela as a Helm
+    Library chart, version 5.2.1, bundled inside charts/nilchela as a Helm
     dependency and distributed in the packaged chart tarball. Its license text
     travels with it, at common/LICENSE: verbatim Apache-2.0 terms plus an
     appendix naming its own holder.
