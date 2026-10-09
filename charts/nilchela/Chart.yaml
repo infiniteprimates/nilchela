@@ -15,7 +15,7 @@ version: 0.0.0
 appVersion: "0.0.3"
 
 # The bjw-s `common` library requires Kubernetes >= 1.31 -- read off the
-# dependency's own Chart.yaml (`common` 5.1.0 declares `>=1.31.0-0`), not
+# dependency's own Chart.yaml (`common` 5.2.1 declares `>=1.31.0-0`), not
 # inferred from the chart this one was prototyped against. This mirrors its
 # floor rather than a looser one of our own: declared here so Helm refuses early
 # with a clear message rather than failing inside a template, and so the version
@@ -49,5 +49,5 @@ dependencies:
     # Pinned exactly, not a range: the library's template API is versioned, and
     # a silent minor bump can rename or restructure what the loader renders.
     # Bump deliberately and re-run tests/chart_contract.py.
-    version: 5.1.0
+    version: 5.2.1
     repository: https://bjw-s-labs.github.io/helm-charts

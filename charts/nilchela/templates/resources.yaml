@@ -3,7 +3,7 @@
   produced by the bjw-s `common` library, rendering from the values shape that
   `_translate.tpl` builds.
 
-  Why this works (read from the library source at 5.1.0, not assumed):
+  Why this works (read from the library source at 5.2.1, not assumed):
 
     templates/loader/_all.tpl      -> define "bjw-s.common.loader.all"
     templates/loader/_generate.tpl -> $rootContext := $ , then renders each
