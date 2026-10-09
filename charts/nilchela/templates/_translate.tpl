@@ -202,15 +202,23 @@ configMaps:
     data:
       mise.toml: |
         # Rendered from .Values.mise.tools — pin exactly, no ranges.
+        #
+        # Keys are quoted only where TOML requires it. A mise backend-qualified
+        # tool name (`pipx:trash-cli`, `cargo:fd-find`) carries a colon, which is
+        # not legal in a TOML bare key: rendered unquoted, the document does not
+        # parse, and `mise install` — the install container's entire job — fails
+        # before the pod ever starts. Quoting only when the key cannot stand bare
+        # keeps the common case (`gh = "..."`, `[tools.rust]`) in the shape a
+        # reader expects.
         [tools]
         {{- range $k, $val := $tools }}
         {{- if not (kindIs "map" $val) }}
-        {{ $k }} = {{ $val | quote }}
+        {{ if regexMatch "^[A-Za-z0-9_-]+$" $k }}{{ $k }}{{ else }}{{ $k | quote }}{{ end }} = {{ $val | quote }}
         {{- end }}
         {{- end }}
         {{- range $k, $val := $tools }}
         {{- if kindIs "map" $val }}
-        [tools.{{ $k }}]
+        [tools.{{ if regexMatch "^[A-Za-z0-9_-]+$" $k }}{{ $k }}{{ else }}{{ $k | quote }}{{ end }}]
         {{- range $ik, $iv := $val }}
         {{ $ik }} = {{ if kindIs "string" $iv }}{{ $iv | quote }}{{ else }}{{ $iv }}{{ end }}
         {{- end }}
