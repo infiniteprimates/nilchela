@@ -197,6 +197,60 @@ persistence:
     globalMounts:
       - path: /config
         readOnly: true
+  {{- /* One projected volume for every agent's credentials. See values.yaml for
+         why a mount rather than env, and why the mode cannot isolate agents. The
+         <agent>/<app>/ prefix is generated here rather than accepted from the
+         user: it is the interface the per-agent path allowlist keys on, so it is
+         the chart's to guarantee.
+
+         advancedMounts, not globalMounts: only the agent container gets the
+         tree. The init containers run as root and have no use for a credential,
+         so mounting it into them would widen the surface for nothing — the same
+         per-container reasoning /tools gets.
+
+         Whitespace note: this comment may not move below the range chain. The
+         chain ends with a left-trim-only `{{- end }}`, which is the only reason
+         a newline survives before `advancedMounts:`; an action with a right trim
+         there glues the key onto the last `items` line and the document stops
+         parsing — silently, because the loader then renders almost nothing. */ -}}
+  {{- $secrets := $v.agentSecrets | default dict -}}
+  {{- $secretAgents := $secrets.agents | default dict -}}
+  {{- $secretMount := $secrets.mountPath | default "/var/run/agent-secrets" -}}
+  {{- $secretMode := $secrets.defaultMode | default "0444" -}}
+  {{- $secretApps := 0 -}}
+  {{- range $agent, $agentSpec := $secretAgents -}}
+    {{- $secretApps = add $secretApps (len ($agentSpec.apps | default dict)) -}}
+  {{- end -}}
+  {{- /* A named agent with no apps would mount nothing while reading as
+         configured. Fail loudly instead: silence is the failure mode. */ -}}
+  {{- if and (gt (len $secretAgents) 0) (eq $secretApps 0) -}}
+    {{- fail "agentSecrets.agents is set but declares no apps, so nothing would be mounted. Add an app, or remove agentSecrets.agents." -}}
+  {{- end -}}
+  {{- if $secretApps }}
+  agent-secrets:
+    type: projected
+    defaultMode: {{ $secretMode }}
+    sources:
+      {{- range $agent, $agentSpec := $secretAgents }}
+        {{- range $app, $appSpec := ($agentSpec.apps | default dict) }}
+      - secret:
+          name: {{ $appSpec.secretName | quote }}
+          {{- if $appSpec.optional }}
+          optional: true
+          {{- end }}
+          items:
+            {{- range $appSpec.items }}
+            - key: {{ .key | quote }}
+              path: {{ printf "%s/%s/%s" $agent $app (.path | default .key) | quote }}
+            {{- end }}
+        {{- end }}
+      {{- end }}
+    advancedMounts:
+      main:
+        main:
+          - path: {{ $secretMount | quote }}
+            readOnly: true
+  {{- end }}
 configMaps:
   config:
     data:

@@ -453,3 +453,139 @@ tests:
       - equal:
           path: spec.template.spec.initContainers[1].args[0]
           value: install
+
+  # ---------------------------------------------------------------------------
+  # agentSecrets -> one projected volume, <agent>/<app>/ path prefixes
+  #
+  # The default case matters as much as the populated one: an install that
+  # declares no agents must render exactly what it rendered before this surface
+  # existed. That is what makes the feature additive.
+  # ---------------------------------------------------------------------------
+  - it: mounts no credential tree when no agents are declared
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "agent-secrets")]
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts[?(@.mountPath == "/var/run/agent-secrets")]
+
+  - it: projects every (agent, app) Secret under an <agent>/<app>/ path
+    set:
+      agentSecrets.agents.dana.apps.gh-token.secretName: agent-secrets-dana-gh-token
+      agentSecrets.agents.dana.apps.gh-token.items[0].key: token
+      agentSecrets.agents.dana.apps.rustfs.secretName: agent-secrets-dana-rustfs
+      agentSecrets.agents.dana.apps.rustfs.items[0].key: config.toml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      # defaultMode is asserted as the decimal the library round-trips the octal
+      # to: values.yaml says 0444, the k8s API reads 292, and they are the same
+      # number. Asserting the spelling here would be asserting an artifact.
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: agent-secrets
+            projected:
+              defaultMode: 292
+              sources:
+                - secret:
+                    name: agent-secrets-dana-gh-token
+                    items:
+                      - key: token
+                        path: dana/gh-token/token
+                - secret:
+                    name: agent-secrets-dana-rustfs
+                    items:
+                      - key: config.toml
+                        path: dana/rustfs/config.toml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: agent-secrets
+            mountPath: /var/run/agent-secrets
+            readOnly: true
+      # The init containers run as root and need no credential; mounting the tree
+      # into them would widen the surface for nothing.
+      - notExists:
+          path: spec.template.spec.initContainers[?(@.name == "install-tools")].volumeMounts[?(@.name == "agent-secrets")]
+      - notExists:
+          path: spec.template.spec.initContainers[?(@.name == "fix-ownership")].volumeMounts[?(@.name == "agent-secrets")]
+
+  - it: defaults an item's path to its key
+    set:
+      agentSecrets.agents.ted.apps.gh-token.secretName: agent-secrets-ted-gh
+      agentSecrets.agents.ted.apps.gh-token.items[0].key: token
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes[?(@.name == "agent-secrets")].projected.sources
+          content:
+            secret:
+              name: agent-secrets-ted-gh
+              items:
+                - key: token
+                  path: ted/gh-token/token
+
+  - it: lets an item's path be overridden, still under the agent/app prefix
+    values:
+      - fixtures/agent-secrets-path-override.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes[?(@.name == "agent-secrets")].projected.sources
+          content:
+            secret:
+              name: agent-secrets-ted-gh
+              items:
+                - key: token
+                  path: ted/gh-token/gh/token
+
+  - it: marks a Secret optional only when asked
+    set:
+      agentSecrets.agents.ted.apps.gh-token.secretName: agent-secrets-ted-gh
+      agentSecrets.agents.ted.apps.gh-token.optional: true
+      agentSecrets.agents.ted.apps.gh-token.items[0].key: token
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes[?(@.name == "agent-secrets")].projected.sources
+          content:
+            secret:
+              name: agent-secrets-ted-gh
+              optional: true
+              items:
+                - key: token
+                  path: ted/gh-token/token
+
+  - it: honours a custom mount path
+    set:
+      agentSecrets.mountPath: /var/run/credentials
+      agentSecrets.agents.ted.apps.gh-token.secretName: agent-secrets-ted-gh
+      agentSecrets.agents.ted.apps.gh-token.items[0].key: token
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: agent-secrets
+            mountPath: /var/run/credentials
+            readOnly: true
+
+  - it: fails when an agent is named but declares no apps
+    # A named agent with no apps would mount nothing while reading as configured.
+    set:
+      agentSecrets.agents.dana.apps: {}
+    asserts:
+      - failedTemplate:
+          errorMessage: "agentSecrets.agents is set but declares no apps, so nothing would be mounted. Add an app, or remove agentSecrets.agents."

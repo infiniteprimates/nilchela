@@ -101,6 +101,57 @@ storage:
     # existingClaim: zeroclaw-data
     # storageClass: ""
 
+# Per-agent credentials, assembled into ONE projected volume at
+# <mountPath>/<agent>/<app>/...
+#
+# Why a mount and not environment variables: a `ZEROCLAW_`-prefixed secret is read
+# once, at daemon start, so rotating it means restarting the pod. A mounted Secret
+# is refreshed in place by the kubelet, so rotation needs no restart. That is the
+# whole reason this surface exists.
+#
+# The chart does NOT create the Secrets. Credential material must not travel
+# through values.yaml, which is committed and rendered; you create one Secret per
+# (agent, app) pair — independent rotation is the point of that split — and name it
+# here. The chart owns the path prefixing, so <agent>/<app>/ cannot be got wrong by
+# hand, and the tree is what the per-agent path allowlist keys on.
+#
+# There is no `enabled` key: the mount exists exactly when there is something to
+# mount. A switch that can be on with nothing behind it is a silent no-op.
+#
+# SECURITY — read before adding a second agent. Every agent lives in this one pod,
+# on this one filesystem, and every process in it runs as uid 65534. `defaultMode`
+# is therefore the minimum a non-root process can read from a root-owned Secret
+# volume, and it cannot separate one agent from another: whatever the pod can read,
+# every process in the pod can read. Isolation between agents is enforced by the
+# per-agent path allowlist in each risk profile (`<mountPath>/<agent>`), not by
+# this mount. Granting the base path would destroy it.
+agentSecrets:
+  # Where the tree is mounted. The per-agent allowlist entry must be
+  # <mountPath>/<agent>, and it must be literal — path allowlists take
+  # path-component prefixes and have no template surface.
+  mountPath: /var/run/agent-secrets
+  # Octal, as k8s writes it. 0444 is deliberate, not a default: the k8s default for
+  # a Secret volume is 0644, which also happens to be readable here — but "it
+  # happens to work" is not a decision. 0444 states it, and drops the write bit
+  # nobody needs. It renders in the manifest as the decimal the library round-trips
+  # it to (292); the test asserts the parsed value, not the spelling.
+  defaultMode: "0444"
+  # One key per agent. `apps` maps an app name to the Secret that backs it; the app
+  # name is the directory the files land in, so it is also the RC_CONFIG_DIR suffix
+  # for that app (`RC_CONFIG_DIR=/var/run/agent-secrets/dana/rustfs`).
+  agents: {}
+    # dana:
+    #   apps:
+    #     gh-token:
+    #       secretName: agent-secrets-dana-gh-token
+    #       items:
+    #         # `path` is relative to <mountPath>/<agent>/<app>/ and defaults to `key`.
+    #         - key: token
+    #     rustfs:
+    #       secretName: agent-secrets-dana-rustfs
+    #       items:
+    #         - key: config.toml
+
 # Probes. Readiness and liveness ship ON; startup is off. They are what makes the
 # pod's Ready state mean anything — with every probe disabled the kubelet reports
 # Ready the moment the container is Running, so `helm install --wait` succeeding

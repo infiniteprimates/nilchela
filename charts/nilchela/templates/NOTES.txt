@@ -115,6 +115,29 @@ from outside the container and targets the pod's address, not loopback, so a
 loopback-bound daemon would fail its own probe — and liveness would then restart a
 pod that was working.
 
+{{- if (gt (len (((.Values.agentSecrets).agents) | default dict)) 0) }}
+
+Credentials are mounted from ONE projected volume at
+{{ ((.Values.agentSecrets).mountPath) | default "/var/run/agent-secrets" }}, one directory per agent per app. The chart
+creates no Secrets — credential material never travels through values — so every
+Secret named under `agentSecrets.agents` must already exist. A missing
+non-optional Secret keeps the pod in ContainerCreating until it does, which is
+the intended signal:
+
+  kubectl -n {{ .Release.Namespace }} get secret agent-secrets-<agent>-<app>
+
+Rotation needs no restart: the kubelet refreshes the files in place. That is why
+the volume is mounted whole and never through a `subPath` — a subPath mount does
+not receive projected-volume updates, so it would quietly lose the property you
+are paying for.
+
+Every agent in this pod shares one filesystem and runs as uid 65534, so no file
+mode can separate them. Isolation is the job of each agent's own path allowlist —
+`{{ ((.Values.agentSecrets).mountPath) | default "/var/run/agent-secrets" }}/<agent>`, literally and per agent. Granting the base path
+grants every agent's credentials to every agent.
+
+{{- end }}
+
 Either way, watch the logs — they are still the only signal that the agent itself
 is working:
 

@@ -55,6 +55,60 @@
         "data": { "$ref": "#/definitions/claim" }
       }
     },
+    "agentSecrets": {
+      "type": "object",
+      "description": "Per-agent credentials assembled into one projected volume at <mountPath>/<agent>/<app>/... . The Secrets are created outside the chart: credential material never travels through values. No `enabled` key — the mount exists exactly when `agents` is non-empty, so a switch cannot disagree with what is behind it.",
+      "additionalProperties": false,
+      "properties": {
+        "mountPath": { "type": "string", "pattern": "^/" },
+        "defaultMode": { "type": "string", "pattern": "^0?[0-7]{3,4}$" },
+        "agents": {
+          "type": "object",
+          "description": "One key per agent. The key is the directory name under mountPath, and must match the agent's own path-allowlist entry.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "apps": {
+                "type": "object",
+                "description": "One key per app. The key is the directory the app's files land in.",
+                "additionalProperties": {
+                  "type": "object",
+                  "description": "One (agent, app) credential set: a single Secret projected under <agent>/<app>/.",
+                  "additionalProperties": false,
+                  "required": ["secretName", "items"],
+                  "properties": {
+                    "secretName": { "type": "string", "minLength": 1 },
+                    "optional": {
+                      "type": "boolean",
+                      "description": "Mark the Secret optional so the pod starts without it. Off by default: a missing credential should keep the pod down and say so, not leave an agent running with nothing to authenticate with."
+                    },
+                    "items": {
+                      "type": "array",
+                      "minItems": 1,
+                      "description": "Which keys of the Secret to project. Required, because the chart cannot read a Secret to discover its keys.",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["key"],
+                        "properties": {
+                          "key": { "type": "string", "minLength": 1 },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Relative to <mountPath>/<agent>/<app>/; defaults to `key`."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "probes": {
       "type": "object",
       "description": "Liveness/readiness/startup probes. Readiness and liveness ship on, startup off; each is enabled individually and all three share one port default.",

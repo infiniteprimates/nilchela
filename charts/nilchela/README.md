@@ -95,7 +95,8 @@ it has to keep on the image's behalf, because a volume mount breaks it:
 | The installer runs as root | `_translate.tpl` → `install-tools` (`runAsUser: 0`) | `/tools` is root-owned; that is what lets the agent mount it read-only |
 | The agent runs non-root | `_translate.tpl` → `main` (`runAsUser: 65534`) | the image's posture, preserved |
 | The agent cannot write `/tools` | `_translate.tpl` → `advancedMounts.main.{install-tools,main}` | the one mount needing per-container modes: RW for the installer, `readOnly: true` for the agent |
-| No `fsGroup` | nowhere — by omission | an fsGroup hands the agent's group write access to `/tools`; with a root-owned installer that is an escalation path into the toolchains the agent is about to execute |
+| No `fsGroup` | nowhere — by omission | an fsGroup hands the agent's group write access to `/tools`; with a root-owned installer that is an escalation path into the toolchains the agent is about to execute. It is also why the credential tree's `defaultMode` is `0444` rather than `0440`: without an fsGroup the files stay `root:root`, so only the "other" bits reach a process running as uid 65534 |
+| The credential tree is opt-in | `_translate.tpl` → `persistence.agent-secrets`, emitted only when `agentSecrets.agents` is non-empty | an install that declares no agents renders exactly what it rendered before the surface existed — that is what makes it additive rather than a migration |
 | The gateway binds all interfaces | derived from `gateway.service.enabled` | the PVC at `/zeroclaw-data` shadows the image's baked `config.toml`, so the daemon otherwise falls back to `host = 127.0.0.1` — and the Service would front a port nothing outside the pod can dial |
 
 Note the column: three of those live in the translation, not in configuration.
@@ -180,6 +181,73 @@ Do not restate the image's own mise bootstrap variables in `mise.env`
 before `mise.toml` exists; restating them here desynchronises the paths it
 already installed into.
 
+### Per-agent credentials
+
+`agentSecrets` mounts each agent's credentials as files under
+`/var/run/agent-secrets/<agent>/<app>/...`, assembled into **one projected
+volume**. The chart does not create the Secrets — credential material must not
+travel through `values.yaml`, which is committed and rendered — so you create one
+Secret per (agent, app) pair and name it here. The split is the point: each pair
+rotates on its own.
+
+```yaml
+agentSecrets:
+  agents:
+    dana:
+      apps:
+        gh-token:
+          secretName: agent-secrets-dana-gh-token
+          items:
+            - key: token                # lands at dana/gh-token/token
+        rustfs:
+          secretName: agent-secrets-dana-rustfs
+          items:
+            - key: config.toml          # lands at dana/rustfs/config.toml
+```
+
+**Why a mount and not environment variables.** A `ZEROCLAW_`-prefixed secret is
+read once, at daemon start, so rotating one means restarting the pod. A mounted
+Secret is refreshed in place by the kubelet, so rotation needs no restart. That
+is the whole reason this surface exists — and it is also why `subPath` is not
+used anywhere here: upstream, a `subPath` mount does not receive
+projected-volume updates, so it would silently lose the one property being paid
+for.
+
+**There is no `enabled` key.** The mount exists exactly when `agents` is
+non-empty. A switch that can be on with nothing behind it is a silent no-op, and
+a named agent with no apps is a render error rather than an empty mount.
+
+**The chart owns the `<agent>/<app>/` prefix.** `items[].path` is relative to it
+and defaults to the item's `key`, so the tree the per-agent path allowlist keys
+on cannot be got wrong by hand.
+
+**Isolation is enforced by the risk profile, not by this mount.** Every agent
+lives in this one pod, on this one filesystem, and every process in it runs as
+uid 65534 — so no file mode can separate one agent from another. `defaultMode` is
+`0444`: the minimum a non-root process can read from a root-owned Secret volume,
+and an `fsGroup` is refused deliberately (it would hand the agent's group a path
+into `/tools`; see *What the defaults encode*). The per-agent allowlist entry
+must therefore be **literal and per-agent** — `/var/run/agent-secrets/dana`, not
+`/var/run/agent-secrets` — because path allowlists take path-component prefixes
+and have no template surface. Granting the base path would destroy exactly the
+isolation the profile provides.
+
+An `RC_CONFIG_DIR` app is the second case worth naming: there, the directory *is*
+the value.
+
+```bash
+RC_CONFIG_DIR=/var/run/agent-secrets/dana/rustfs rc get claim/agent-jorge/<guid> ./in.md
+```
+
+Per-agent by construction: no env injection, no pod-spec plumbing, no `$HOME`
+dependency, no shared default path to collide on. A read-only mount is fine for
+`rc get/put/stat`; `rc alias set` would fail, which is correct — the config is
+provisioned, never agent-written.
+
+`optional: true` on an app marks its Secret optional so the pod starts without
+it. Off by default: a missing credential should keep the pod down and say so,
+rather than leave an agent running with nothing to authenticate with.
+
 ### Overriding the rest
 
 The whole surface:
@@ -205,6 +273,11 @@ storage:
   tools: { size: 10Gi }        # or: existingClaim: zeroclaw-tools
   cache: { size: 5Gi }
   data:  { size: 10Gi }
+
+agentSecrets:
+  mountPath: /var/run/agent-secrets
+  defaultMode: "0444"
+  agents: {}                   # <agent>.apps.<app> = secretName + items
 
 gateway:
   service: { enabled: true, type: ClusterIP, port: 42617 }
