@@ -274,6 +274,26 @@ tests:
           path: data["mise.toml"]
           pattern: 'version = "1\.83\.0"'
 
+  - it: quotes a tool key that is not a legal TOML bare key, and only that key
+    # `pipx:` and `cargo:` are mise backend qualifiers, and a colon is not legal
+    # in a TOML bare key. Rendered unquoted, the document does not parse at all,
+    # so `mise install` — the install container's entire job — fails before the
+    # pod starts. The second assertion is the other direction: a key that *can*
+    # stand bare must stay bare, so the fix does not churn every existing render.
+    set:
+      mise.tools.pipx:trash-cli: "0.26.9.14"
+      mise.tools.go: "1.27.1"
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["mise.toml"]
+          pattern: '(?m)^"pipx:trash-cli" = "0\.26\.9\.14"$'
+      - matchRegex:
+          path: data["mise.toml"]
+          pattern: '(?m)^go = "1\.27\.1"$'
+
   - it: renders mise.env into the mise.toml [env] table
     set:
       mise.env.CARGO_HOME: /cache/cargo

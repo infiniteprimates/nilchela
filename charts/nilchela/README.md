@@ -162,6 +162,11 @@ Pin exactly. A range makes `mise` resolve over the network on every start, which
 throws away the warm-volume fast path the retained `/tools` claim exists to
 provide.
 
+Backend-qualified tool names work as written — `pipx:trash-cli`, `cargo:fd-find`,
+`npm:some-cli`. A colon is not legal in a TOML bare key, so the translation quotes
+those keys in the rendered `mise.toml`; keys that can stand bare are left bare, so
+the document reads the way you would write it.
+
 See [`mise.toml.example`](../../mise.toml.example) for the full reference —
 per-tool options, Rust targets and components, dist mirrors.
 
