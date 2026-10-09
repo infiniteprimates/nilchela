@@ -49,10 +49,5 @@ dependencies:
     # Pinned exactly, not a range: the library's template API is versioned, and
     # a silent minor bump can rename or restructure what the loader renders.
     # Bump deliberately and re-run tests/chart_contract.py.
-    #
-    # 5.1.0 -> 5.2.1: 5.2.1 is the first release with a first-class `projected`
-    # persistence type, which the secrets surface needs (a projected volume
-    # built by hand through `type: custom` bypasses the library's values
-    # schema). Its kubeVersion floor is unchanged at >=1.31.0-0.
     version: 5.2.1
     repository: https://bjw-s-labs.github.io/helm-charts
