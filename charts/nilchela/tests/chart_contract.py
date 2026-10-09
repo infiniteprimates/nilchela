@@ -5,7 +5,8 @@ exists to encode, against a live `helm template` render.
 Why this exists: the chart delegates all rendering to the bjw-s `common`
 library, so what is *ours* is the translation (`templates/_translate.tpl`) and
 the pod model it emits — root installer, non-root agent, read-only /tools, split
-ownership, no fsGroup — plus the gateway's exposure posture (ClusterIP Service
+ownership, no fsGroup, no credential volume until one is declared — plus the
+gateway's exposure posture (ClusterIP Service
 on the gateway port, bound off loopback, readiness and liveness probes on the
 daemon's health route). Asserting the translation
 against *real output* rather than against our own values.yaml is the point: a
@@ -315,6 +316,21 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
     checker.check(
         "pod does not set fsGroup (split ownership is per-volume)",
         "fsGroup" not in pod_security,
+    )
+
+    # -- the credential tree is additive. CI passes only this render, so what
+    # belongs here is the guarantee that an install which declares no agents
+    # renders exactly what it rendered before the surface existed: no projected
+    # volume, hence no mount for one. The populated case — the <agent>/<app>/
+    # prefixing, the read-only mount, the loud failure on a named agent with no
+    # apps — is asserted in helm-unittest, where it runs on every PR.
+    projected = [
+        volume for volume in pod_spec.get("volumes") or [] if "projected" in volume
+    ]
+    checker.check(
+        "no projected volume when no agents are declared",
+        not projected,
+        f"projected volumes={[volume.get('name') for volume in projected]}",
     )
 
     main = container(pod_spec, "main")
