@@ -453,3 +453,139 @@ tests:
       - equal:
           path: spec.template.spec.initContainers[1].args[0]
           value: install
+
+  # ---------------------------------------------------------------------------
+  # extraVolumes / extraVolumeMounts
+  #
+  # The escape hatch is two raw Kubernetes lists, and what this layer has to pin
+  # is the translation, not the passthrough: the mount is re-keyed to the
+  # library's `path` field, the volume name comes from the persistence identifier
+  # rather than the mount, and the mount lands in the agent container and not in
+  # the two root init containers.
+  # ---------------------------------------------------------------------------
+  - it: renders the chart's four volumes and nothing else by default
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 4
+
+  - it: adds an extra volume and mounts it in the agent container only
+    set:
+      extraVolumes:
+        - name: gh-token
+          secret:
+            secretName: zeroclaw-gh-token
+      extraVolumeMounts:
+        - name: gh-token
+          mountPath: /run/secrets/gh
+          readOnly: true
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: gh-token
+            secret:
+              secretName: zeroclaw-gh-token
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: gh-token
+            mountPath: /run/secrets/gh
+            readOnly: true
+      # The credential is the agent's, not the installer's: neither init
+      # container may carry the mount.
+      - notContains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: gh-token
+            mountPath: /run/secrets/gh
+            readOnly: true
+      - notContains:
+          path: spec.template.spec.initContainers[1].volumeMounts
+          content:
+            name: gh-token
+            mountPath: /run/secrets/gh
+            readOnly: true
+
+  - it: mounts one extra volume at several paths, and passes subPath through
+    set:
+      extraVolumes:
+        - name: rustfs-config
+          configMap:
+            name: zeroclaw-rustfs
+      extraVolumeMounts:
+        - name: rustfs-config
+          mountPath: /config/rustfs/config.toml
+          subPath: config.toml
+        - name: rustfs-config
+          mountPath: /etc/rustfs
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: rustfs-config
+            mountPath: /config/rustfs/config.toml
+            subPath: config.toml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: rustfs-config
+            mountPath: /etc/rustfs
+
+  # The guards. Each is a contradiction the chart refuses to render rather than a
+  # manifest the API server rejects later: a name collision with the chart's own
+  # volumes, a mount naming something that is not an extra volume, a mountPath the
+  # chart occupies, and a volume nothing consumes.
+  - it: fails when an extra volume takes a name the chart owns
+    set:
+      extraVolumes:
+        - name: data
+          secret:
+            secretName: x
+      extraVolumeMounts:
+        - name: data
+          mountPath: /run/secrets/x
+    asserts:
+      - failedTemplate:
+          errorMessage: 'extraVolumes: "data" is a name the chart owns (data, tools, cache, config). It is mounted at a fixed path; rename yours.'
+
+  - it: fails when a mount names something that is not an extra volume
+    set:
+      extraVolumeMounts:
+        - name: ghost
+          mountPath: /run/secrets/x
+    asserts:
+      - failedTemplate:
+          errorMessage: 'extraVolumeMounts: "ghost" is not an extraVolumes entry. The chart places its own volumes (data, tools, cache, config) itself; this key is for volumes the chart does not know about.'
+
+  - it: fails when a mountPath is already occupied by a chart volume
+    set:
+      extraVolumes:
+        - name: gh-token
+          secret:
+            secretName: x
+      extraVolumeMounts:
+        - name: gh-token
+          mountPath: /tools
+    asserts:
+      - failedTemplate:
+          errorMessage: 'extraVolumeMounts: mountPath "/tools" is already occupied by the chart''s own volume. Pick another path.'
+
+  - it: fails when an extra volume is never mounted
+    set:
+      extraVolumes:
+        - name: orphan
+          configMap:
+            name: x
+    asserts:
+      - failedTemplate:
+          errorMessage: 'extraVolumes: "orphan" is declared but never mounted, so nothing would consume it. Add a matching extraVolumeMounts entry, or drop the volume.'

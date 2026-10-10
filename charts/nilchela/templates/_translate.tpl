@@ -25,6 +25,56 @@
 {{- $miseEnv := ($v.mise | default dict).env | default dict -}}
 {{- $sched := $v.scheduling | default dict -}}
 {{- $res := $v.resources | default dict -}}
+{{- $extraVolumes := $v.extraVolumes | default list -}}
+{{- $extraMounts := $v.extraVolumeMounts | default list -}}
+
+{{- /* The extra-volume surface. Guards first, so a contradiction fails here at
+       `helm template` rather than at sync or at pod admission:
+
+         * a name the chart already uses (the pod cannot carry two volumes under
+           one name, and the chart's own four are mounted at fixed paths),
+         * a mount naming anything but an extraVolumes entry — the chart places
+           its own four volumes itself, at paths it derives rather than takes,
+         * a mountPath the chart already occupies (k8s rejects a duplicate
+           mountPath inside one container),
+         * a volume nothing mounts (it would render and consume nothing — a
+           silent no-op, which is the failure mode this chart refuses).
+
+       A name collision is a contradiction, not an override: the chart's volumes
+       are mounted where they are for reasons stated in values.yaml, and the
+       escape hatch is not a way to disagree with them silently. */ -}}
+{{- $chartVolumes := list "data" "tools" "cache" "config" -}}
+{{- $chartMountPaths := list "/zeroclaw-data" "/tools" "/cache" "/config" -}}
+{{- $extraVolumeNames := list -}}
+{{- range $extraVolumes -}}
+  {{- if has .name $chartVolumes -}}
+    {{- fail (printf "extraVolumes: %q is a name the chart owns (%s). It is mounted at a fixed path; rename yours." .name (join ", " $chartVolumes)) -}}
+  {{- end -}}
+  {{- $extraVolumeNames = append $extraVolumeNames .name -}}
+{{- end -}}
+{{- $mountedNames := list -}}
+{{- $mountsByName := dict -}}
+{{- range $extraMounts -}}
+  {{- if not (has .name $extraVolumeNames) -}}
+    {{- fail (printf "extraVolumeMounts: %q is not an extraVolumes entry. The chart places its own volumes (data, tools, cache, config) itself; this key is for volumes the chart does not know about." .name) -}}
+  {{- end -}}
+  {{- if has .mountPath $chartMountPaths -}}
+    {{- fail (printf "extraVolumeMounts: mountPath %q is already occupied by the chart's own volume. Pick another path." .mountPath) -}}
+  {{- end -}}
+  {{- $mountedNames = append $mountedNames .name -}}
+  {{- /* The library names the mount field `path`, not `mountPath`, and takes the
+         volume name from the persistence identifier rather than the mount. So the
+         user's k8s VolumeMount is re-keyed on the way in; every other field is
+         passed through as written. */ -}}
+  {{- $mount := omit . "name" "mountPath" -}}
+  {{- $_ := set $mount "path" .mountPath -}}
+  {{- $_ := set $mountsByName .name (append (get $mountsByName .name | default list) $mount) -}}
+{{- end -}}
+{{- range $extraVolumes -}}
+  {{- if not (has .name $mountedNames) -}}
+    {{- fail (printf "extraVolumes: %q is declared but never mounted, so nothing would consume it. Add a matching extraVolumeMounts entry, or drop the volume." .name) -}}
+  {{- end -}}
+{{- end -}}
 {{- $repo := $image.repository | default "ghcr.io/infiniteprimates/nilchela" -}}
 {{- $tag := $image.tag | default .Chart.AppVersion -}}
 {{- $pull := $image.pullPolicy | default "IfNotPresent" -}}
@@ -197,6 +247,22 @@ persistence:
     globalMounts:
       - path: /config
         readOnly: true
+  {{- range $vol := $extraVolumes }}
+  {{ $vol.name }}:
+    # type: custom is the library's raw-volume escape: volumeSpec is a k8s Volume
+    # body, verbatim, and the volume's name is the identifier above. Nothing is
+    # created — custom renders no PVC and no object of its own.
+    type: custom
+    volumeSpec:
+      {{- omit $vol "name" | toYaml | nindent 6 }}
+    # advancedMounts, not globalMounts: the agent container only. The two root
+    # init containers need no credential, and scoping the mount here is what keeps
+    # that true without naming a container in the values surface.
+    advancedMounts:
+      main:
+        main:
+          {{- toYaml (get $mountsByName $vol.name) | nindent 10 }}
+  {{- end }}
 configMaps:
   config:
     data:

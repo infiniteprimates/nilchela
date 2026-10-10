@@ -55,6 +55,51 @@
         "data": { "$ref": "#/definitions/claim" }
       }
     },
+    "extraVolumes": {
+      "type": "array",
+      "description": "Raw Kubernetes Volume objects, verbatim, added to the pod. The chart reads only `name`. Exactly one volume source per entry, and the source body is passed through unvalidated — so a source Kubernetes adds tomorrow needs no chart change. The chart creates nothing: a `secret` names a Secret you made, a `persistentVolumeClaim` names a claim you made.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+            "maxLength": 63
+          },
+          "secret": { "type": "object" },
+          "configMap": { "type": "object" },
+          "projected": { "type": "object" },
+          "emptyDir": { "type": "object" },
+          "persistentVolumeClaim": { "type": "object" },
+          "hostPath": { "type": "object" },
+          "nfs": { "type": "object" },
+          "csi": { "type": "object" },
+          "downwardAPI": { "type": "object" },
+          "ephemeral": { "type": "object" },
+          "image": { "type": "object" }
+        },
+        "oneOf": [
+          { "required": ["secret"] },
+          { "required": ["configMap"] },
+          { "required": ["projected"] },
+          { "required": ["emptyDir"] },
+          { "required": ["persistentVolumeClaim"] },
+          { "required": ["hostPath"] },
+          { "required": ["nfs"] },
+          { "required": ["csi"] },
+          { "required": ["downwardAPI"] },
+          { "required": ["ephemeral"] },
+          { "required": ["image"] }
+        ]
+      }
+    },
+    "extraVolumeMounts": {
+      "type": "array",
+      "description": "Raw Kubernetes VolumeMount objects, verbatim, for the agent container. `name` must match an extraVolumes entry — the chart places its own volumes (data, tools, cache, config) itself — and `mountPath` is yours. A volume declared and never mounted, a mount naming something that is not an extra volume, and a mountPath the chart already occupies all fail the render.",
+      "items": { "$ref": "#/definitions/volumeMount" }
+    },
     "probes": {
       "type": "object",
       "description": "Liveness/readiness/startup probes. Readiness and liveness ship on, startup off; each is enabled individually and all three share one port default.",
@@ -92,6 +137,23 @@
     }
   },
   "definitions": {
+    "volumeMount": {
+      "type": "object",
+      "description": "One VolumeMount. `name` is the volume; `mountPath` is where the agent reads it. `subPath` selects one key of a Secret or ConfigMap volume, at the cost of the in-place refresh a whole-volume mount gets.",
+      "additionalProperties": false,
+      "required": ["name", "mountPath"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "mountPath": { "type": "string", "pattern": "^/" },
+        "readOnly": { "type": "boolean" },
+        "subPath": { "type": "string" },
+        "subPathExpr": { "type": "string" },
+        "mountPropagation": {
+          "type": "string",
+          "enum": ["None", "HostToContainer", "Bidirectional"]
+        }
+      }
+    },
     "probe": {
       "type": "object",
       "description": "One probe. `spec` merges over the derived probe, so it takes the full k8s Probe shape (initialDelaySeconds, periodSeconds, timeoutSeconds, failureThreshold, successThreshold, terminationGracePeriodSeconds).",
