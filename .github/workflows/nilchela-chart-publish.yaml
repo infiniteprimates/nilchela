@@ -1,0 +1,248 @@
+# Build & publish the nilchela Helm chart to GHCR as an OCI artifact.
+#
+# The trigger carries no `paths:` filter on purpose. The version probe below is
+# what decides whether anything happens, so a merge that does not touch the chart
+# costs one Helm metadata fetch, and the run list answers "did that merge publish
+# anything?" without anyone reasoning about glob patterns.
+name: Nilchela Helm Chart Publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Two merges in quick succession must not interleave a probe with a push: the
+# second could probe before the first has pushed and then push the same version
+# over it. Serialise, and never cancel a publish that is mid-flight.
+concurrency:
+  group: nilchela-helm-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  HELM_VERSION: v4.3.0
+
+  REGISTRY: ghcr.io
+
+  # The push target is the repository, not the chart: `helm push` infers the
+  # basename from the chart's own name and the tag from its own version, so the
+  # result is ghcr.io/infiniteprimates/charts/nilchela:<Chart.yaml version>.
+  CHART_REPO: oci://ghcr.io/infiniteprimates/charts
+
+  # Must match charts/nilchela/Chart.yaml `kubeVersion` and the literal in
+  # nilchela-helm-pr.yaml. Workflows cannot share an env block, so this is a
+  # deliberate second copy of one number -- the floor the chart claims.
+  KUBERNETES_VERSION: "1.31.0"
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      pushed: ${{ steps.publish.outputs.pushed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Read the chart version
+        id: version
+        # `version:` is a top-level key in Chart.yaml. The column-0 anchor keeps
+        # the indented `version:` under `dependencies:` out of the match, and
+        # `exit` takes the first hit, which is the chart's own. Helm would refuse
+        # a Chart.yaml without this key, so an empty result means the file is not
+        # what this workflow thinks it is -- fail rather than proceed with an
+        # empty version, which would probe and push a nonsense reference.
+        run: |
+          set -euo pipefail
+          version="$(awk '/^version:/{print $2; exit}' charts/nilchela/Chart.yaml | tr -d '"')"
+          if [ -z "${version}" ]; then
+            echo "::error::no top-level 'version:' found in charts/nilchela/Chart.yaml"
+            exit 1
+          fi
+          echo "Chart.yaml declares version ${version}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Log in to GHCR
+        # Needed for the probe as well as the push. The package is created
+        # PRIVATE on first push (flip it to public in the package settings, same
+        # as the image), and a private package cannot be probed anonymously.
+        # --password-stdin rather than --password keeps the token out of argv.
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${TOKEN}" | helm registry login "${REGISTRY}" \
+            --username "${{ github.actor }}" --password-stdin
+
+      - name: Probe the registry for this version
+        id: probe
+        # `helm push` does NOT refuse to overwrite an existing OCI tag -- it
+        # replaces it silently. helm/helm#9985 is the open request to make it
+        # fail; NVIDIA/k8s-test-infra#937 is the same behaviour biting GHCR
+        # users. So this probe is the only thing keeping a published version
+        # immutable, and it is the reason the workflow is worth its complexity.
+        #
+        # Classification, and why each branch is safe:
+        #   exit 0      -> already published; nothing to do.
+        #   not found   -> the repository exists and this version does not exist.
+        #   denied      -> GHCR refuses the pull. Measured against ghcr.io for a
+        #                  package that does not exist yet, which is exactly the
+        #                  first publish. Treated as absent, and that is
+        #                  fail-safe: were the real cause a broken credential,
+        #                  the push below would fail with the same denial and the
+        #                  job would go red anyway.
+        #   anything else -> hard failure. An unclassified error must never be
+        #                  read as "absent", because absent means "push", and a
+        #                  push over an existing version is silent.
+        #
+        # `case` rather than a grep pipeline: a `grep -q` that matches early
+        # closes the pipe, and under `pipefail` the writer's SIGPIPE would turn a
+        # match into a failure.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          ref="${CHART_REPO}/nilchela"
+          if out="$(helm show chart "${ref}" --version "${VERSION}" 2>&1)"; then
+            echo "published=true" >> "${GITHUB_OUTPUT}"
+            echo "nilchela ${VERSION} is already published; nothing to push."
+          else
+            case "${out}" in
+              *"not found"*|*denied*)
+                echo "published=false" >> "${GITHUB_OUTPUT}"
+                echo "nilchela ${VERSION} is not published yet."
+                ;;
+              *)
+                echo "::error::registry probe failed for nilchela ${VERSION}: ${out}"
+                exit 1
+                ;;
+            esac
+          fi
+
+      - name: Publish
+        id: publish
+        if: steps.probe.outputs.published == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          helm repo add --force-update bjw-s https://bjw-s-labs.github.io/helm-charts
+
+          # Lock-driven: Chart.lock pins `common` to an exact version and digest
+          # and Helm refuses to proceed if the lock disagrees with Chart.yaml.
+          # charts/nilchela/charts/ is gitignored, so this is also what makes the
+          # artifact reproducible from the committed lock -- and it is load
+          # bearing: without it the package contains no dependency, and every
+          # consumer hits "found in Chart.yaml, but missing in charts/ directory".
+          helm dependency build charts/nilchela
+          helm lint charts/nilchela
+          helm package charts/nilchela --destination "${RUNNER_TEMP}"
+
+          tgz="${RUNNER_TEMP}/nilchela-${VERSION}.tgz"
+          if [ ! -f "${tgz}" ]; then
+            echo "::error::helm package did not produce ${tgz}"
+            exit 1
+          fi
+
+          # Render the ARTIFACT, not the directory. This is the only step that
+          # exercises the packaged form: a package whose dependency failed to
+          # vendor still pushes cleanly and only breaks at the consumer, and the
+          # PR workflow cannot catch it because it renders the directory.
+          helm template nilchela "${tgz}" --namespace nilchela \
+            --kube-version "${KUBERNETES_VERSION}" > /dev/null
+
+          helm push "${tgz}" "${CHART_REPO}"
+          echo "pushed=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Summary
+        if: always()
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PUBLISHED: ${{ steps.probe.outputs.published }}
+          PUSHED: ${{ steps.publish.outputs.pushed }}
+        run: |
+          {
+            echo "### nilchela chart"
+            echo
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| chart version | \`${VERSION:-unknown}\` |"
+            echo "| already published | \`${PUBLISHED:-unknown}\` |"
+            echo "| pushed this run | \`${PUSHED:-no}\` |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  tag:
+    name: Tag
+    needs: publish
+    # Only the run that actually pushed knows which commit published this
+    # version -- it is that run's github.sha, the merge commit on main. A later
+    # run cannot reconstruct it, so this job deliberately does NOT run when the
+    # version was already published: a tag created later would point at a commit
+    # that does not contain this chart version, which is precisely the drift the
+    # tag exists to rule out.
+    #
+    # Consequence, accepted deliberately: if this job fails, that run stays red
+    # and the tag has to be added by hand at the SHA printed below. A missing
+    # tag is visible and cheap to fix; a tag that disagrees with the published
+    # chart is invisible and expensive to debug.
+    if: needs.publish.outputs.pushed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Ensure the chart-v<version> tag
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="chart-v${VERSION}"
+
+          # Annotated, so the tag carries an author, a date and a message: it is
+          # the tamper-evident record of what version ${VERSION} contained, which
+          # the registry cannot provide (GHCR tags are mutable).
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Ask the remote, not a local clone: actions/checkout is fetch-depth 1
+          # and has no tags.
+          #
+          # Both the tag ref and its peeled form, because for an annotated tag
+          # they disagree: refs/tags/X points at the tag OBJECT, so comparing
+          # that SHA against a commit would mismatch every time. X^{} is the
+          # commit the tag wraps; a lightweight tag has no peeled line, so its
+          # plain ref is already the commit.
+          peeled="$(git ls-remote --tags origin "refs/tags/${tag}^{}" | cut -f1)"
+          plain="$(git ls-remote --tags origin "refs/tags/${tag}" | cut -f1)"
+
+          if [ -n "${peeled}" ]; then
+            target="${peeled}"
+          else
+            target="${plain}"
+          fi
+
+          if [ -z "${target}" ]; then
+            git tag -a "${tag}" -m "nilchela chart ${VERSION}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${tag}"
+            echo "created ${tag} at ${GITHUB_SHA}"
+          elif [ "${target}" != "${GITHUB_SHA}" ]; then
+            echo "::error::${tag} points at ${target}, but ${VERSION} was published from ${GITHUB_SHA}. The tag and the published chart disagree -- resolve by hand."
+            exit 1
+          else
+            echo "${tag} already points at ${GITHUB_SHA}; nothing to do."
+          fi
