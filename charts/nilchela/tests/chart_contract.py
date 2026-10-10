@@ -498,6 +498,31 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
             f"mise.toml={mise_toml!r}",
         )
 
+    # -- the extra-volume escape hatch is additive, and empty by default. With no
+    # `extraVolumes` the pod must be exactly the chart's four volumes and the agent
+    # must mount exactly the chart's four paths: an escape hatch that changed the
+    # default render would be a behaviour change for every existing install rather
+    # than an opt-in. The configured cases — and the guards that refuse a name
+    # collision, a dangling mount, an occupied path and a dead volume — live in
+    # tests/values_surface_test.yaml. What belongs here is that the default is
+    # untouched.
+    volume_names = sorted(
+        volume.get("name") for volume in pod_spec.get("volumes") or []
+    )
+    checker.check(
+        "the default render carries exactly the chart's own four volumes",
+        volume_names == ["cache", "config", "data", "tools"],
+        f"volumes={volume_names}",
+    )
+    agent_mounts = sorted(
+        mount.get("mountPath") for mount in (main or {}).get("volumeMounts") or []
+    )
+    checker.check(
+        "the agent container mounts exactly the chart's own four paths by default",
+        agent_mounts == sorted([CACHE_PATH, CONFIG_PATH, TOOLS_PATH, DATA_PATH]),
+        f"mounts={agent_mounts}",
+    )
+
     # -- the three claims exist and survive `helm uninstall`.
     pvcs = by_kind(manifests, "PersistentVolumeClaim")
     for suffix, size in (("-tools", "10Gi"), ("-cache", "5Gi"), ("-data", "10Gi")):

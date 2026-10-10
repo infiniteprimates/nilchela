@@ -206,6 +206,9 @@ storage:
   cache: { size: 5Gi }
   data:  { size: 10Gi }
 
+extraVolumes: []               # raw k8s Volume objects, verbatim
+extraVolumeMounts: []          # where they mount — agent container only
+
 gateway:
   service: { enabled: true, type: ClusterIP, port: 42617 }
 
@@ -234,9 +237,10 @@ already had, and this chart does not resize or re-provision it.
   and `probes.liveness` ship on; all three take `enabled`, plus `type`, `path`,
   `port` and a raw k8s `spec`. See *Probes* below for what each one does to the
   pod — and for where it is the wrong tool.
-- **Extra containers, volumes, sidecars, ServiceMonitor, `defaultPodOptions`.**
+- **Extra containers, sidecars, ServiceMonitor, `defaultPodOptions`.**
   Reachable in `app-template`, withheld here: each one is a way to make the pod
-  model untrue while looking configured.
+  model untrue while looking configured. Extra *volumes* are the exception, and
+  deliberately so — see *Extra volumes and mounts* below.
 - **A wholesale `app-template:` spread.** It stays out for testability, not
   taste: a value that skips the translation is a value nothing in this chart
   reads, so `tests/chart_contract.py` cannot assert it, and the guarantees above
@@ -244,7 +248,55 @@ already had, and this chart does not resize or re-provision it.
 
 Power-user features are added as **relations**, not escape hatches. The Service
 is the worked example: `gateway.service.enabled` *derives* the bind override, so
-one switch cannot disagree with itself.
+one switch cannot disagree with itself. `extraVolumes` is the one deliberate
+exception — a volume the chart cannot know the shape of is exactly the thing a
+relation cannot express — and it is bounded rather than open: it may add, never
+change, and the render refuses the four ways it could disagree with the chart.
+
+### Extra volumes and mounts
+
+A Secret or a ConfigMap that belongs to your deployment — a credential, a
+service's config — is something this chart cannot name and cannot place. So it
+takes the two raw Kubernetes lists and adds them:
+
+```yaml
+extraVolumes:
+  - name: gh-token
+    secret:
+      secretName: zeroclaw-gh-token
+      defaultMode: 0444
+extraVolumeMounts:
+  - name: gh-token
+    mountPath: /run/secrets/gh
+    readOnly: true
+```
+
+Four things are worth knowing:
+
+- **It adds; it does not change.** The chart's own four volumes stay where they
+  are. A volume named `data`, `tools`, `cache` or `config` fails the render, and
+  so does a `mountPath` the chart already occupies — the pod cannot carry two
+  volumes under one name, and the chart mounts its own at paths it derives rather
+  than takes.
+- **A mount that goes nowhere fails the render.** So does a volume nothing
+  mounts. Both would otherwise render fine and do nothing, which is the failure
+  mode this chart refuses everywhere else.
+- **The agent container only.** Nothing here names a container, so the chart
+  stays free to rename its own; the two root init containers never carry the
+  mount. That is the right default for a credential, and it is also the gap: a
+  volume the *toolchain install* needs is not expressible.
+- **A mount is the shape for a rotating credential.** The kubelet refreshes a
+  mounted Secret in place, so a rotated value needs no restart. `env` is read
+  once, at container start — use it when the consumer only reads a variable.
+
+The chart creates nothing: a `secret` names a Secret you made, and an extra claim
+is yours to create and reference with `persistentVolumeClaim.claimName`. And it
+is built for **reads**. A Secret or ConfigMap mount works as it stands. A
+*writable* extra claim is harder than it looks — the agent runs as uid `65534`,
+the chart's `fix-ownership` init container chowns only its own two paths, and the
+chart sets no `fsGroup` (see *What the defaults encode*) — so a fresh claim
+mounted here arrives root-owned. Pre-provision the ownership on the volume, or
+keep extras read-only.
 
 ---
 

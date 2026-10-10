@@ -101,6 +101,61 @@ storage:
     # existingClaim: zeroclaw-data
     # storageClass: ""
 
+# Extra pod volumes, and where they are mounted. Two lists, verbatim Kubernetes:
+# `extraVolumes` is a list of Volume, `extraVolumeMounts` a list of VolumeMount.
+# The chart reads only `name` and `mountPath` — every other field passes through
+# untouched, so nothing here has to be learned twice.
+#
+# Raw Kubernetes rather than a typed surface, deliberately. A typed one has to
+# enumerate volume sources and will always be missing one — `items`,
+# `defaultMode`, `projected`, `csi`, `emptyDir`, the next source k8s adds. Passing
+# the object through covers all of them, now and later, with no chart code.
+#
+# A mounted Secret is what this is for. The chart cannot know your Secret's name
+# or the path it belongs at, so it has no opinion about either — that is the point.
+# A mount is also the right shape for a credential that rotates: the kubelet
+# refreshes a mounted Secret in place, so rotation needs no restart. Env is read
+# once, at container start, so a rotated value needs a roll; `env` still takes the
+# case where the consumer only reads a variable.
+#
+# WHAT THIS DOES NOT DO:
+#   * It creates nothing. A `secret` volume names a Secret you made; an extra
+#     claim is yours to create, referenced with `persistentVolumeClaim.claimName`.
+#   * It mounts into the agent container only — never the two root init
+#     containers, which need no credential. Nothing here names a container, so the
+#     chart stays free to rename them. A volume the *toolchain install* needs is
+#     therefore not expressible; that is a real gap, named rather than implied.
+#   * It does not re-place the chart's own volumes. `extraVolumeMounts` names an
+#     extraVolumes entry; data/tools/cache/config are mounted where the chart
+#     derives, not where this key says.
+#
+# Extras are built for reads. A Secret or ConfigMap mount works as it stands; a
+# *writable* extra claim arrives root-owned, because the agent runs as uid 65534,
+# fix-ownership chowns only the chart's own two paths, and the chart sets no
+# fsGroup. Pre-provision the ownership, or keep extras read-only.
+#
+# The render fails — not the sync — on: a volume that is never mounted, a mount
+# naming anything but an extraVolumes entry, a volume named after one of the
+# chart's own (data, tools, cache, config), and a mountPath the chart already
+# occupies.
+extraVolumes: []
+  # - name: gh-token
+  #   secret:
+  #     secretName: zeroclaw-gh-token
+  #     defaultMode: 0444
+  # - name: rustfs-config
+  #   configMap:
+  #     name: zeroclaw-rustfs
+
+extraVolumeMounts: []
+  # - name: gh-token
+  #   mountPath: /run/secrets/gh
+  #   readOnly: true
+  # - name: rustfs-config
+  #   mountPath: /config/rustfs/config.toml
+  #   subPath: config.toml
+  #   readOnly: true
+
 # Probes. Readiness and liveness ship ON; startup is off. They are what makes the
 # pod's Ready state mean anything — with every probe disabled the kubelet reports
 # Ready the moment the container is Running, so `helm install --wait` succeeding
