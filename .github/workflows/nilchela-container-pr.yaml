@@ -21,6 +21,7 @@ permissions:
 
 jobs:
   container-pr:
+    name: Container PR
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
