@@ -37,7 +37,7 @@ env:
   KUBERNETES_VERSION: "1.31.0"
 
 jobs:
-  publish:
+  chart-publish:
     name: Publish chart
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -183,7 +183,7 @@ jobs:
             echo "| pushed this run | \`${PUSHED:-no}\` |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-  tag:
+  chart-tag:
     name: Tag
     needs: publish
     # Only the run that actually pushed knows which commit published this
