@@ -50,6 +50,24 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
+          # Artifact Hub's own keys are annotations: that is the form it prefers,
+          # and on a multi-arch image the index is where it looks first. The
+          # org.opencontainers.image.* fields stay labels, because that is what
+          # this action generates and what docker inspect shows.
+          annotations: |
+            io.artifacthub.package.readme-url=https://raw.githubusercontent.com/infiniteprimates/nilchela/main/README.md
+            io.artifacthub.package.logo-url=https://raw.githubusercontent.com/infiniteprimates/nilchela/main/docs/assets/nilchela-logo.svg
+          # The action emits org.opencontainers.image.description as an empty
+          # label while the repository has no description. Override it, or the
+          # listing indexes with no description at all.
+          labels: |
+            org.opencontainers.image.description=A thin, opinionated ZeroClaw dev image that installs mise-managed toolchains at runtime instead of baking them into the image.
+        env:
+          # Artifact Hub reads index-level annotations first on a multi-arch
+          # image and falls back to image metadata, so annotate both levels.
+          # This needs the build to produce an index -- it does, on two
+          # platforms; a single-platform build would need 'index' dropped here.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
 
       - name: Build & push
         uses: docker/build-push-action@v6
@@ -60,6 +78,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+
           # No build-args: ZEROCLAW_VERSION and MISE_VERSION default from the
           # Dockerfile ARG lines, the single source of truth. Bump there only.
           cache-from: type=gha
