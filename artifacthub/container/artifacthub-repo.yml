@@ -1,0 +1,46 @@
+# Artifact Hub repository metadata for the nilchela image repository
+# (oci://ghcr.io/infiniteprimates/nilchela).
+#
+# Same mechanism as artifacthub/chart/artifacthub-repo.yml, different repository:
+# Artifact Hub reads this file from the OCI repository itself, under the special
+# tag `artifacthub.io` — NOT from git. Publishing it is what earns the image
+# listing its "Verified publisher" flag.
+#
+# Published by .github/workflows/nilchela-artifacthub-metadata.yaml, which runs
+# oras from this directory:
+#
+#   oras push ghcr.io/infiniteprimates/nilchela:artifacthub.io \
+#     --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+#     artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+#
+# The `artifacthub.io` tag lands in the same OCI repository as the image tags
+# (latest, 0.0.x). It is not an image and not semver, so nothing pulls it as one
+# and Artifact Hub does not index it as a version — it is a sidecar artifact
+# addressed only by Artifact Hub, which matches on the layer media type.
+
+# ID of the Artifact Hub repository that lists the nilchela images.
+#
+# Where to find it: Artifact Hub control panel -> Repositories -> the nilchela
+# Container images card -> "ID".
+#
+# Effect: on the next processing pass, a matching ID flags the listing
+# "Verified publisher". A wrong or missing ID is not an error; the flag just
+# never appears, which is why it is worth getting right and worth checking
+# afterwards.
+#
+# Stable for the life of the Artifact Hub repository. Deleting and re-adding the
+# repository retires the ID and mints a new one, and a stale ID is not an error —
+# it just silently never verifies.
+#
+# Note that this file governs ownership only. Whether the images themselves are
+# listed at all is separate: the container images repository has its tags
+# configured by hand in the control panel (max 10), and a tag is only listed if
+# the image carries the metadata Artifact Hub requires — io.artifacthub.package
+# .readme-url, org.opencontainers.image.created, and
+# org.opencontainers.image.description.
+repositoryID: 958ba47e-de58-47ee-b047-a89cd3ab522f
+
+# `owners` and `ignore` are deliberately omitted, for the same reasons as the
+# chart file: the repository is added directly to the infiniteprimates
+# organization, so there is nothing to claim, and no image version needs
+# suppressing.

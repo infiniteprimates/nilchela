@@ -1,0 +1,53 @@
+# Artifact Hub repository metadata for the nilchela chart repository
+# (oci://ghcr.io/infiniteprimates/charts/nilchela).
+#
+# Artifact Hub reads this file from the OCI repository itself, under the special
+# tag `artifacthub.io` — NOT from git. It is committed here so the contents are
+# versioned and CI can publish them, instead of the file existing only as a
+# hand-run `oras push` on someone's laptop that no one can audit later.
+#
+# Published by .github/workflows/nilchela-artifacthub-metadata.yaml, which runs
+# oras from this directory:
+#
+#   oras push ghcr.io/infiniteprimates/charts/nilchela:artifacthub.io \
+#     --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+#     artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+#
+# The `artifacthub.io` tag sits in the same OCI repository as the chart tags. It
+# is not semver, so Artifact Hub does not index it as a chart version.
+#
+# This file lives in artifacthub/chart/, deliberately NOT inside charts/nilchela/:
+# anything in the chart directory that `.helmignore` does not exclude is packaged
+# into the published .tgz, and an Artifact Hub metadata file has no business
+# inside the chart artifact. It keeps the filename Artifact Hub documents, so the
+# push needs no renaming step — and the layer's media type, not the filename, is
+# what Artifact Hub actually matches on.
+#
+# One directory per Artifact Hub repository, because `repositoryID` is per
+# repository: artifacthub/container/ holds the one for the image repository.
+
+# ID of the Artifact Hub repository that lists the nilchela chart.
+#
+# Where to find it: Artifact Hub control panel -> Repositories -> the nilchela
+# Helm charts card -> "ID".
+#
+# Effect: on the next processing pass, a matching ID flags the listing
+# "Verified publisher" — the signal that whoever publishes the listing controls
+# the artifacts. A wrong or missing ID is not an error; the flag just never
+# appears, which is why it is worth getting right and worth checking afterwards.
+#
+# The ID is stable for the life of the Artifact Hub repository — and only for its
+# life. This one replaced an earlier ID issued for the original chart repository,
+# which was deleted and re-added on 2026-10-11. Delete and re-add it again and
+# this value goes stale the same way — silently, because a stale ID is not an
+# error, it just never verifies. Replace the value here, then let CI republish.
+repositoryID: bbf48965-f1e6-40a0-a60e-c5e53b5a280f
+
+# `owners` is deliberately omitted. It exists so a third party can claim
+# ownership of a repository someone else added, and it must list the email used
+# to sign in to Artifact Hub. This repository is being added directly to the
+# infiniteprimates organization, so there is nothing to claim. Add it only if
+# ownership ever has to be claimed by another account.
+
+# `ignore` is deliberately omitted. It suppresses versions that cannot be fixed
+# or should not be indexed. Nothing published so far needs suppressing.
