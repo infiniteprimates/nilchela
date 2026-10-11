@@ -178,7 +178,7 @@ balloon with disposable registries.
 
 The image is published to **GitHub Container Registry**
 (`ghcr.io/infiniteprimates/nilchela`) by
-[`.github/workflows/build-publish.yaml`](../.github/workflows/build-publish.yaml),
+[`.github/workflows/nilchela-container-build-publish.yaml`](../.github/workflows/nilchela-container-build-publish.yaml),
 which runs **on `v*` git tags only**:
 
 - **Tags** — `<semver>` (for example `0.0.3` from git tag `v0.0.3`),
@@ -191,10 +191,10 @@ which runs **on `v*` git tags only**:
 - **No registry secret needed** — the workflow's `permissions: packages: write`
   grants what `GITHUB_TOKEN` requires.
 - **Pull requests build but do not push**
-  ([`pr-build.yaml`](../.github/workflows/pr-build.yaml)), which is the check to
-  mark required in branch protection.
+  ([`nilchela-container-pr.yaml`](../.github/workflows/nilchela-container-pr.yaml)),
+  which is the check to mark required in branch protection.
 
-To publish: push a `v*` tag. Pushing to `main` does not publish anything.
+To publish: push a `v*` tag. Pushing to `main` does not publish an image.
 
 > For a *different* registry (self-hosted Harbor, Docker Hub, etc.), swap the
 > `registry`/`username`/`password` in the login step and add its credentials as

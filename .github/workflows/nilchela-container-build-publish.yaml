@@ -7,7 +7,7 @@
 #
 # Multi-arch: builds native amd64 + arm64 in parallel via buildx (both your
 # x86 cluster and any arm64 host pull the correct manifest).
-name: build-publish
+name: Nilchela Container Build and Publish
 
 on:
   push:
@@ -22,7 +22,7 @@ permissions:
   packages: write
 
 jobs:
-  build:
+  container-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
