@@ -6,11 +6,9 @@
 
 <p align="center"><strong>"the empty claw, equipped."</strong></p>
 
-<p align="center">
-  <a href="https://artifacthub.io/packages/search?repo=nilchela"><img src="https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/nilchela" alt="Artifact Hub"></a>
-</p>
-
 ---
+
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/nilchela)](https://artifacthub.io/packages/search?repo=nilchela)
 
 A thin, development-enabled image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base plus a clean pattern for provisioning language toolchains *at runtime* instead of baking them in, built on `build-essential` and the [`mise`](https://mise.jdx.dev) version manager.
 
