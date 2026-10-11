@@ -4,7 +4,7 @@
 # what decides whether anything happens, so a merge that does not touch the chart
 # costs one Helm metadata fetch, and the run list answers "did that merge publish
 # anything?" without anyone reasoning about glob patterns.
-name: Nilchela Helm Chart Publish
+name: Nilchela Chart Publish
 
 on:
   push:
@@ -15,7 +15,7 @@ on:
 # second could probe before the first has pushed and then push the same version
 # over it. Serialise, and never cancel a publish that is mid-flight.
 concurrency:
-  group: nilchela-helm-publish
+  group: nilchela-chart-publish
   cancel-in-progress: false
 
 permissions:
@@ -32,7 +32,7 @@ env:
   CHART_REPO: oci://ghcr.io/infiniteprimates/charts
 
   # Must match charts/nilchela/Chart.yaml `kubeVersion` and the literal in
-  # nilchela-helm-pr.yaml. Workflows cannot share an env block, so this is a
+  # nilchela-chart-pr.yaml. Workflows cannot share an env block, so this is a
   # deliberate second copy of one number -- the floor the chart claims.
   KUBERNETES_VERSION: "1.31.0"
 
