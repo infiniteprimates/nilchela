@@ -22,7 +22,7 @@ permissions:
   packages: write
 
 jobs:
-  build:
+  container-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
