@@ -184,7 +184,7 @@ jobs:
 
   chart-tag:
     name: Tag
-    needs: publish
+    needs: chart-publish
     # Only the run that actually pushed knows which commit published this
     # version -- it is that run's github.sha, the merge commit on main. A later
     # run cannot reconstruct it, so this job deliberately does NOT run when the
@@ -196,7 +196,7 @@ jobs:
     # and the tag has to be added by hand at the SHA printed below. A missing
     # tag is visible and cheap to fix; a tag that disagrees with the published
     # chart is invisible and expensive to debug.
-    if: needs.publish.outputs.pushed == 'true'
+    if: needs.chart-publish.outputs.pushed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -207,7 +207,7 @@ jobs:
 
       - name: Ensure the chart-v<version> tag
         env:
-          VERSION: ${{ needs.publish.outputs.version }}
+          VERSION: ${{ needs.chart-publish.outputs.version }}
         run: |
           set -euo pipefail
           tag="chart-v${VERSION}"
