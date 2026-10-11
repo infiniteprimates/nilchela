@@ -9,8 +9,9 @@
 # arch-arg class of bug we hit on arm64), it just never publishes anything.
 #
 # If build times become a problem, drop `linux/arm64` to validate amd64-only
-# (multi-arch correctness stays covered by build-publish.yaml on main).
-name: pr-build
+# (multi-arch correctness stays covered by nilchela-containerbuild-publish.yaml
+# on main).
+name: Nilchela Container PR
 
 on:
   pull_request:
