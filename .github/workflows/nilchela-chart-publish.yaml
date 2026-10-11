@@ -9,7 +9,6 @@ name: Nilchela Chart Publish
 on:
   push:
     branches: [main]
-  workflow_dispatch:
 
 # Two merges in quick succession must not interleave a probe with a push: the
 # second could probe before the first has pushed and then push the same version
