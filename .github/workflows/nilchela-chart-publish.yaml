@@ -38,7 +38,7 @@ env:
 
 jobs:
   publish:
-    name: Publish
+    name: Publish chart
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
