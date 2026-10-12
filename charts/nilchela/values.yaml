@@ -121,7 +121,7 @@ volumes:
       # existingClaim: zeroclaw-tools
       # storageClass: ""
       # type: emptyDir
-    # The honest emptyDir fit: /cache is disposable by definition, so an ephemeral
+    # /cache is disposable by definition, so an ephemeral
     # one costs a re-download on every pod restart, not a cold install — the
     # toolchains live in /tools.
     cache: {}

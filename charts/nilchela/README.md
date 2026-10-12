@@ -229,7 +229,7 @@ volumes:
   # pod-local directory — see *Ephemeral volumes*.
   required:
     tools: {}                    # or: size: 20Gi / existingClaim: zeroclaw-tools
-    cache: {}                    # /cache, the honest emptyDir fit
+    cache: {}
     data:  {}
 
   # What you add. The key IS the mount path.
@@ -272,13 +272,12 @@ claim at all, so there is nothing to retain — see *Ephemeral volumes*.
 
 Claim names are pinned: a created claim is `<release>-<volume>` (`nilchela-tools`,
 `nilchela-cache`, `nilchela-data`) and an `extra` claim is `<release>-<key>`,
-whatever else is in the release. That is worth stating because the bjw-s library
-appends the identifier only when a chart renders *more than one* claim, so without
-the pin, flipping two of the three `required` volumes to `emptyDir` would rename
-the survivor to the bare release name — a new, empty claim created beside the
-retained one it orphaned. The pin makes the name independent of the count; a
-`volumes.extra` claim behaves the same way, so a name never moves under a values
-change that only removes claims.
+whatever else is in the release. The bjw-s library appends the identifier only when
+a chart renders *more than one* claim, so without the pin, flipping two of the three
+`required` volumes to `emptyDir` would rename the survivor to the bare release name
+— a new, empty claim created beside the retained one it orphaned. The pin makes the
+name independent of the count; a `volumes.extra` claim behaves the same way, so a
+name never moves under a values change that only removes claims.
 
 ### Ephemeral volumes
 
@@ -287,10 +286,10 @@ directory instead of a claim. It is opt-in and never the default: the default
 install is the durable one, and a default that makes `/zeroclaw-data` ephemeral is
 a default that loses state on the first restart. Three cases reach for it — a
 cluster with no storage provisioner (the default install renders three claims, and
-without a provisioner none of them bind), a throwaway install, and `/cache`, the
-honest fit, disposable by definition.
+without a provisioner none of them bind), a throwaway install, and `/cache`, which
+is disposable by definition.
 
-What each one costs, stated rather than implied:
+What each one costs:
 
 | Volume | Ephemeral means | Cost |
 |---|---|---|

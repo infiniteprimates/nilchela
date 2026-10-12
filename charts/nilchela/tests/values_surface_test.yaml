@@ -381,7 +381,7 @@ tests:
   # volumes.required — emptyDir: the no-provisioner and throwaway case
   # ---------------------------------------------------------------------------
   # emptyDir is opt-in and never the default, so each of the three has to be
-  # reachable on its own — /cache is the honest fit, /tools is the cold install
+  # reachable on its own — /cache is disposable, /tools is the cold install
   # the chart was built around, /zeroclaw-data is the daemon's state — and the
   # claim fields have to stop being accepted the moment it is chosen.
   - it: backs a required volume with an emptyDir when its type says so
