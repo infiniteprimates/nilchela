@@ -48,19 +48,19 @@
     },
     "volumes": {
       "type": "object",
-      "description": "Two sections, because they answer two different questions. `required` is the image's contract — the three claims it expects at /tools, /cache and /zeroclaw-data — so the chart owns those paths and `path`/`type` are refused there. `extra` is what the deployer adds, where the key IS the mount path.",
+      "description": "Two sections, because they answer two different questions. `required` is the image's contract — the three volumes it expects at /tools, /cache and /zeroclaw-data — so the chart owns those paths and `path` is refused there; each is a claim by default, and `type: emptyDir` trades the claim for a pod-local directory. `extra` is what the deployer adds, where the key IS the mount path.",
       "additionalProperties": false,
       "required": ["required", "extra"],
       "properties": {
         "required": {
           "type": "object",
-          "description": "The image's three claims. A closed set: `path` and `type` are not accepted, because the chart places them.",
+          "description": "The image's three volumes. A closed set: `path` is not accepted, because the chart places it. `type` chooses what backs the path — a claim or an emptyDir — and nothing else about the mount is yours to move.",
           "additionalProperties": false,
           "required": ["tools", "cache", "data"],
           "properties": {
-            "tools": { "$ref": "#/definitions/claim" },
-            "cache": { "$ref": "#/definitions/claim" },
-            "data": { "$ref": "#/definitions/claim" }
+            "tools": { "$ref": "#/definitions/requiredVolume" },
+            "cache": { "$ref": "#/definitions/requiredVolume" },
+            "data": { "$ref": "#/definitions/requiredVolume" }
           }
         },
         "extra": {
@@ -120,14 +120,17 @@
         "spec": { "type": "object" }
       }
     },
-    "claim": {
+    "requiredVolume": {
       "type": "object",
-      "description": "One claim. `size` creates it; `existingClaim` adopts one you already have instead, and wins if both are set — `size` is defaulted in values.yaml, so it is present in practice even when the user names a claim.",
+      "description": "One of the image's three volumes. `type` is `persistentVolumeClaim` (default) or `emptyDir`. The claim fields and the emptyDir fields are mutually exclusive, and the translation layer fails on the contradiction naming the key and the field, rather than accept a value nothing reads.",
       "additionalProperties": false,
       "properties": {
+        "type": { "type": "string", "enum": ["persistentVolumeClaim", "emptyDir"] },
         "size": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|K)$" },
         "storageClass": { "type": "string" },
-        "existingClaim": { "type": "string" }
+        "existingClaim": { "type": "string" },
+        "medium": { "type": "string", "enum": ["", "Memory"] },
+        "sizeLimit": { "type": "string" }
       }
     },
     "extraVolume": {
@@ -169,10 +172,6 @@
         "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
       },
       "allOf": [
-        {
-          "if": { "required": ["type"], "properties": { "type": { "const": "persistentVolumeClaim" } } },
-          "then": { "oneOf": [{ "required": ["existingClaim"] }, { "required": ["size"] }] }
-        },
         {
           "if": { "required": ["type"], "properties": { "type": { "const": "secret" } } },
           "then": { "oneOf": [{ "required": ["name"] }, { "required": ["identifier"] }] }

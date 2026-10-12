@@ -222,12 +222,15 @@ resources:
   # `cargo build` into an OOMKill
 
 volumes:
-  # The image's contract: the three claims it expects at /tools, /cache and
-  # /zeroclaw-data. The chart owns those paths, so `path` and `type` are refused.
+  # The image's contract: the three volumes it expects at /tools, /cache and
+  # /zeroclaw-data. The chart owns those paths, so `path` is refused. `size`
+  # creates a claim and the chart defaults it (10Gi / 5Gi / 10Gi); `existingClaim`
+  # adopts one you already have instead; `type: emptyDir` trades the claim for a
+  # pod-local directory — see *Ephemeral volumes*.
   required:
-    tools: { size: 10Gi }        # or: existingClaim: zeroclaw-tools
-    cache: { size: 5Gi }
-    data:  { size: 10Gi }
+    tools: {}                    # or: size: 20Gi / existingClaim: zeroclaw-tools
+    cache: {}                    # /cache, the honest emptyDir fit
+    data:  {}
 
   # What you add. The key IS the mount path.
   extra: {}
@@ -264,7 +267,44 @@ after an uninstall, set `volumes.required.<volume>.existingClaim` — all three 
 it, as an alternative to `size` — and note that an adopted claim is left
 unannotated, because it is not ours to say what happens to it next. The claim is
 used as-is: its size and storage class are whatever it already had, and this chart
-does not resize or re-provision it.
+does not resize or re-provision it. A volume set to `type: emptyDir` creates no
+claim at all, so there is nothing to retain — see *Ephemeral volumes*.
+
+Claim names are pinned: a created claim is `<release>-<volume>` (`nilchela-tools`,
+`nilchela-cache`, `nilchela-data`) and an `extra` claim is `<release>-<key>`,
+whatever else is in the release. That is worth stating because the bjw-s library
+appends the identifier only when a chart renders *more than one* claim, so without
+the pin, flipping two of the three `required` volumes to `emptyDir` would rename
+the survivor to the bare release name — a new, empty claim created beside the
+retained one it orphaned. The pin makes the name independent of the count; a
+`volumes.extra` claim behaves the same way, so a name never moves under a values
+change that only removes claims.
+
+### Ephemeral volumes
+
+`volumes.required.<volume>.type: emptyDir` backs that path with a pod-local
+directory instead of a claim. It is opt-in and never the default: the default
+install is the durable one, and a default that makes `/zeroclaw-data` ephemeral is
+a default that loses state on the first restart. Three cases reach for it — a
+cluster with no storage provisioner (the default install renders three claims, and
+without a provisioner none of them bind), a throwaway install, and `/cache`, the
+honest fit, disposable by definition.
+
+What each one costs, stated rather than implied:
+
+| Volume | Ephemeral means | Cost |
+|---|---|---|
+| `tools` | the toolchains | the init container re-installs them on every pod restart — this is the cold install the chart was built around |
+| `cache` | disposable caches | re-downloaded as they are used; not a cold install, because the toolchains live in `/tools` |
+| `data` | the daemon's state | gone on every restart, and `keep` is moot — no claim is created to keep |
+
+Under `type: emptyDir` no claim field may be named: `size`, `storageClass` and
+`existingClaim` each fail at render, naming the key and the field, because there
+is no claim to configure. The mirror holds too — `medium` and `sizeLimit` are
+refused on a claim. `sizeLimit` is the one worth reaching for: an emptyDir with no
+limit is bounded only by the node's disk, so a runaway build can fill it. `medium:
+Memory` puts the directory in RAM and counts against the container's memory limit,
+which makes `sizeLimit` the thing that keeps it from being the pod's OOMKill.
 
 ### What is deliberately not exposed
 

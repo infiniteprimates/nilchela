@@ -52,6 +52,12 @@
 {{- $toolsSpec := $required.tools | default dict -}}
 {{- $cacheSpec := $required.cache | default dict -}}
 {{- $dataSpec := $required.data | default dict -}}
+{{- /* What backs each of the three paths. The chart owns the path; this is the one
+       thing about a required volume the deployer decides. Any value but these two
+       is refused by the schema's enum, before this template runs. */ -}}
+{{- $toolsType := $toolsSpec.type | default "persistentVolumeClaim" -}}
+{{- $cacheType := $cacheSpec.type | default "persistentVolumeClaim" -}}
+{{- $dataType := $dataSpec.type | default "persistentVolumeClaim" -}}
 {{- /* The paths the chart occupies. A deployer's extra volume may not land on one
        of them: k8s would reject the duplicate mountPath, but only after the
        release is half-applied, and the message would not say which key did it.
@@ -149,12 +155,52 @@ service:
         protocol: HTTP
         primary: true
 {{- end }}
+{{- /* A required volume is a claim or an emptyDir, never both. An emptyDir creates
+       no claim, so a claim field named beside it would render a value nothing
+       reads — and the emptyDir fields beside a claim are the same mistake in the
+       other direction. Both fail here, naming the key and the field, in the same
+       shape as the extra-volume guards below: a value that renders nothing is
+       worse than a value that refuses. */ -}}
+{{- range $key, $spec := (dict "tools" $toolsSpec "cache" $cacheSpec "data" $dataSpec) }}
+{{- $kind := $spec.type | default "persistentVolumeClaim" }}
+{{- if eq $kind "emptyDir" }}
+{{- range $field := (list "size" "storageClass" "existingClaim") }}
+{{- if hasKey $spec $field }}
+{{- fail (printf "volumes.required.%s: type emptyDir creates no claim, so %s cannot be set; drop one of the two" $key $field) }}
+{{- end }}
+{{- end }}
+{{- else }}
+{{- range $field := (list "medium" "sizeLimit") }}
+{{- if hasKey $spec $field }}
+{{- fail (printf "volumes.required.%s: %s is an emptyDir field and this volume is a %s; set type: emptyDir or drop it" $key $field $kind) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- /* Every claim the chart creates carries a pinned `suffix`, so its name is
+       <fullname>-<key> in every combination. The library appends the identifier
+       only when a chart renders more than one claim (common:
+       lib/common/_determineResourceNameFromValues.tpl, `itemCount > 1`), which
+       makes the name depend on how many of the other volumes happen to be
+       ephemeral: flipping two of the three required volumes to emptyDir would
+       rename the survivor to the bare release name — a NEW, empty claim created
+       beside the retained one it orphaned. That is the failure the `keep`
+       annotation exists to prevent, so the name is pinned instead of inherited. */}}
 persistence:
   tools:
-    {{- if $toolsSpec.existingClaim }}
+    {{- if eq $toolsType "emptyDir" }}
+    type: emptyDir
+    {{- with $toolsSpec.medium }}
+    medium: {{ . | quote }}
+    {{- end }}
+    {{- with $toolsSpec.sizeLimit }}
+    sizeLimit: {{ . | quote }}
+    {{- end }}
+    {{- else if $toolsSpec.existingClaim }}
     existingClaim: {{ $toolsSpec.existingClaim | quote }}
     {{- else }}
     type: persistentVolumeClaim
+    suffix: tools
     accessMode: ReadWriteOnce
     size: {{ $toolsSize }}
     retain: true
@@ -173,10 +219,19 @@ persistence:
           - path: /tools
             readOnly: true
   cache:
-    {{- if $cacheSpec.existingClaim }}
+    {{- if eq $cacheType "emptyDir" }}
+    type: emptyDir
+    {{- with $cacheSpec.medium }}
+    medium: {{ . | quote }}
+    {{- end }}
+    {{- with $cacheSpec.sizeLimit }}
+    sizeLimit: {{ . | quote }}
+    {{- end }}
+    {{- else if $cacheSpec.existingClaim }}
     existingClaim: {{ $cacheSpec.existingClaim | quote }}
     {{- else }}
     type: persistentVolumeClaim
+    suffix: cache
     accessMode: ReadWriteOnce
     size: {{ $cacheSize }}
     retain: true
@@ -187,10 +242,19 @@ persistence:
     globalMounts:
       - path: /cache
   data:
-    {{- if $dataSpec.existingClaim }}
+    {{- if eq $dataType "emptyDir" }}
+    type: emptyDir
+    {{- with $dataSpec.medium }}
+    medium: {{ . | quote }}
+    {{- end }}
+    {{- with $dataSpec.sizeLimit }}
+    sizeLimit: {{ . | quote }}
+    {{- end }}
+    {{- else if $dataSpec.existingClaim }}
     existingClaim: {{ $dataSpec.existingClaim | quote }}
     {{- else }}
     type: persistentVolumeClaim
+    suffix: data
     accessMode: ReadWriteOnce
     size: {{ $dataSize }}
     retain: true
@@ -220,6 +284,13 @@ persistence:
   {{- fail (printf "volumes.extra.%s: type image needs Kubernetes 1.33 or newer (ImageVolume); this render targets %s" $key $.Capabilities.KubeVersion.Version) }}
   {{- end }}
   {{- end }}
+  {{- /* A claim entry with neither a size nor an adopted claim renders `size:`
+         empty: the schema accepts it (there is no chart default to fall back on,
+         the way there is for the three required volumes) and k8s rejects it at
+         sync, naming neither the key nor the field that is missing. */ -}}
+  {{- if and (eq $type "persistentVolumeClaim") (not $spec.existingClaim) (not $spec.size) }}
+  {{- fail (printf "volumes.extra.%s: type persistentVolumeClaim needs size or existingClaim" $key) }}
+  {{- end }}
   {{- if has $mountPath $chartPaths }}
   {{- fail (printf "volumes.extra.%s: %s is mounted by the chart; choose another path" $key $mountPath) }}
   {{- end }}
@@ -233,6 +304,7 @@ persistence:
     {{- if $spec.existingClaim }}
     existingClaim: {{ $spec.existingClaim | quote }}
     {{- else }}
+    suffix: {{ $key }}
     accessMode: {{ $spec.accessMode | default "ReadWriteOnce" }}
     size: {{ $spec.size }}
     retain: true

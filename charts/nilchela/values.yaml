@@ -86,36 +86,56 @@ resources:
 
 # Volumes, in two sections.
 #
-# `required` is the image's contract: the three claims the image expects at
+# `required` is the image's contract: the three volumes the image expects at
 # /tools, /cache and /zeroclaw-data. The chart owns those paths, which is why
-# `path` and `type` are refused here. `size` creates a claim; `existingClaim`
-# adopts one you already have instead (an uninstalled release leaves its claims
-# behind — see README). Every claim the chart creates is annotated
-# `helm.sh/resource-policy: keep`.
+# `path` is refused here. `size` creates a claim and the chart defaults it
+# (10Gi / 5Gi / 10Gi); `existingClaim` adopts one you already have instead (an
+# uninstalled release leaves its claims behind — see README). Every claim the
+# chart creates is annotated `helm.sh/resource-policy: keep` and named
+# `<release>-<volume>`, whatever else the release renders.
+#
+# `type: emptyDir` replaces a claim with a pod-local directory. It is opt-in and
+# never the default: a default that makes /zeroclaw-data ephemeral is a default
+# that loses state on the first restart, which is the opposite of what the `keep`
+# annotation above is for. Under it no claim field may be named — the render fails
+# naming the key and the field, rather than accept a value nothing reads. What
+# each volume costs when it is ephemeral is on its own line below.
 #
 # `extra` is everything you add. The key IS the mount path — `media` mounts at
 # /media — and `path:` overrides it for a nested route. `type` defaults to
-# persistentVolumeClaim; `secret`, `configMap`, `projected`, `emptyDir` and
-# `hostPath` take the fields their kind needs. Mounting machinery is deliberately
-# not exposed: the chart places every mount, in the container it chooses.
+# persistentVolumeClaim, which has to name `size` or `existingClaim`; `secret`,
+# `configMap`, `projected`, `emptyDir` and `hostPath` take the fields their kind
+# needs. Mounting machinery is deliberately not exposed: the chart places every
+# mount, in the container it chooses.
 #
 # Nothing under `extra` may resolve onto /tools, /cache, /zeroclaw-data or
 # /config, and no key may be named tools, cache, data or config — the render
 # fails naming both sides rather than letting k8s fail later.
 volumes:
   required:
-    tools:
-      size: 10Gi
+    # `type: emptyDir` here means the toolchains are re-installed by the init
+    # container on every pod restart — this is the cold install the chart was
+    # built around.
+    tools: {}
+      # size: 10Gi                        # the chart's default
       # existingClaim: zeroclaw-tools
       # storageClass: ""
-    cache:
-      size: 5Gi
+      # type: emptyDir
+    # The honest emptyDir fit: /cache is disposable by definition, so an ephemeral
+    # one costs a re-download on every pod restart, not a cold install — the
+    # toolchains live in /tools.
+    cache: {}
+      # size: 5Gi                         # the chart's default
       # existingClaim: zeroclaw-cache
       # storageClass: ""
-    data:
-      size: 10Gi
+      # type: emptyDir
+    # The daemon's own state. `type: emptyDir` here means it is gone on every
+    # restart, and `keep` is moot: no claim is created to keep.
+    data: {}
+      # size: 10Gi                        # the chart's default
       # existingClaim: zeroclaw-data
       # storageClass: ""
+      # type: emptyDir
   extra: {}
     # media:
     #   existingClaim: media
