@@ -237,10 +237,10 @@ volumes:
     # Secret in place, so a rotating credential needs no restart, unlike `env`.
     # agent-secrets:
     #   type: projected
-    #   path: /var/run/agent-secrets/tony
+    #   path: /var/run/agent-secrets/<agent>
     #   defaultMode: "0444"
     #   sources:
-    #     - secret: { name: zeroclaw-hermione-app-token, items: [ { key: token, path: gh/token } ] }
+    #     - secret: { name: zeroclaw-<agent>-app-token, items: [ { key: token, path: gh/token } ] }
     #
     # Eight source types are available: persistentVolumeClaim, secret, configMap,
     # projected, emptyDir, ephemeral, hostPath, image. `nfs` is not one of them —

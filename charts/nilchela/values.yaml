@@ -126,11 +126,11 @@ volumes:
     # restart — unlike `env`, which is read once at container start.
     # agent-secrets:
     #   type: projected
-    #   path: /var/run/agent-secrets/tony   # default would be /agent-secrets
+    #   path: /var/run/agent-secrets/<agent>   # default would be /agent-secrets
     #   defaultMode: "0444"
     #   sources:
     #     - secret:
-    #         name: zeroclaw-hermione-app-token
+    #         name: zeroclaw-<agent>-app-token
     #         items:
     #           - { key: token, path: gh/token }
     #     - serviceAccountToken:
