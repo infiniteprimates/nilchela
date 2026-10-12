@@ -46,13 +46,29 @@
         "limits": { "type": "object" }
       }
     },
-    "storage": {
+    "volumes": {
       "type": "object",
+      "description": "Two sections, because they answer two different questions. `required` is the image's contract — the three volumes it expects at /tools, /cache and /zeroclaw-data — so the chart owns those paths and `path` is refused there; each is a claim by default, and `type: emptyDir` trades the claim for a pod-local directory. `extra` is what the deployer adds, where the key IS the mount path.",
       "additionalProperties": false,
+      "required": ["required", "extra"],
       "properties": {
-        "tools": { "$ref": "#/definitions/claim" },
-        "cache": { "$ref": "#/definitions/claim" },
-        "data": { "$ref": "#/definitions/claim" }
+        "required": {
+          "type": "object",
+          "description": "The image's three volumes. A closed set: `path` is not accepted, because the chart places it. `type` chooses what backs the path — a claim or an emptyDir — and nothing else about the mount is yours to move.",
+          "additionalProperties": false,
+          "required": ["tools", "cache", "data"],
+          "properties": {
+            "tools": { "$ref": "#/definitions/requiredVolume" },
+            "cache": { "$ref": "#/definitions/requiredVolume" },
+            "data": { "$ref": "#/definitions/requiredVolume" }
+          }
+        },
+        "extra": {
+          "type": "object",
+          "description": "Volumes the deployer adds. The key is the mount path (`media` mounts at /media); `path` overrides it for a nested route. Mounting machinery (globalMounts/advancedMounts) is deliberately not exposed — the chart places every mount. `nfs` and `custom` are not exposed: `nfs` needs a field the library also calls `path`, and `custom` is the raw passthrough this surface exists to replace.",
+          "propertyNames": { "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$" },
+          "additionalProperties": { "$ref": "#/definitions/extraVolume" }
+        }
       }
     },
     "probes": {
@@ -104,15 +120,83 @@
         "spec": { "type": "object" }
       }
     },
-    "claim": {
+    "requiredVolume": {
       "type": "object",
-      "description": "One claim. `size` creates it; `existingClaim` adopts one you already have instead, and wins if both are set — `size` is defaulted in values.yaml, so it is present in practice even when the user names a claim.",
+      "description": "One of the image's three volumes. `type` is `persistentVolumeClaim` (default) or `emptyDir`. The claim fields and the emptyDir fields are mutually exclusive, and the translation layer fails on the contradiction naming the key and the field, rather than accept a value nothing reads.",
       "additionalProperties": false,
       "properties": {
+        "type": { "type": "string", "enum": ["persistentVolumeClaim", "emptyDir"] },
         "size": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|K)$" },
         "storageClass": { "type": "string" },
-        "existingClaim": { "type": "string" }
+        "existingClaim": { "type": "string" },
+        "medium": { "type": "string", "enum": ["", "Memory"] },
+        "sizeLimit": { "type": "string" }
       }
+    },
+    "extraVolume": {
+      "type": "object",
+      "description": "One extra volume. `type` names the kind of source — exactly one kind per entry, which is what makes 'a volume nothing mounts' and 'two sources under one name' unexpressible rather than merely discouraged.",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["persistentVolumeClaim", "secret", "configMap", "projected", "emptyDir", "ephemeral", "hostPath", "image"]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9._/-]+$",
+          "description": "Mount path. Defaults to /<key>."
+        },
+        "readOnly": { "type": "boolean" },
+        "accessMode": { "type": "string" },
+        "size": { "type": "string" },
+        "storageClass": { "type": "string" },
+        "existingClaim": { "type": "string" },
+        "name": { "type": "string" },
+        "identifier": { "type": "string" },
+        "items": { "type": "array" },
+        "defaultMode": {
+          "type": "string",
+          "pattern": "^0?[0-7]{3,4}$",
+          "description": "Octal file mode as a string, e.g. \"0444\". Emitted unquoted so YAML parses it as a number — k8s rejects a quoted mode."
+        },
+        "sources": { "type": "array", "minItems": 1 },
+        "medium": { "type": "string", "enum": ["", "Memory"] },
+        "sizeLimit": { "type": "string" },
+        "hostPath": { "type": "string" },
+        "hostPathType": {
+          "type": "string",
+          "enum": ["DirectoryOrCreate", "Directory", "FileOrCreate", "File", "Socket", "CharDevice", "BlockDevice"]
+        },
+        "image": { "type": ["string", "object"] },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "secret" } } },
+          "then": { "oneOf": [{ "required": ["name"] }, { "required": ["identifier"] }] }
+        },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "configMap" } } },
+          "then": { "oneOf": [{ "required": ["name"] }, { "required": ["identifier"] }] }
+        },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "projected" } } },
+          "then": { "required": ["sources"] }
+        },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "ephemeral" } } },
+          "then": { "required": ["size"] }
+        },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "hostPath" } } },
+          "then": { "required": ["hostPath"] }
+        },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "image" } } },
+          "then": { "required": ["image"] }
+        }
+      ]
     }
   }
 }

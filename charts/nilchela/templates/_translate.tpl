@@ -20,7 +20,9 @@
 {{- $svc := $gw.service | default dict -}}
 {{- $svcEnabled := ternary $svc.enabled true (hasKey $svc "enabled") -}}
 {{- $userEnv := $v.env | default dict -}}
-{{- $storage := $v.storage | default dict -}}
+{{- $volumes := $v.volumes | default dict -}}
+{{- $required := $volumes.required | default dict -}}
+{{- $extra := $volumes.extra | default dict -}}
 {{- $tools := ($v.mise | default dict).tools | default dict -}}
 {{- $miseEnv := ($v.mise | default dict).env | default dict -}}
 {{- $sched := $v.scheduling | default dict -}}
@@ -28,9 +30,9 @@
 {{- $repo := $image.repository | default "ghcr.io/infiniteprimates/nilchela" -}}
 {{- $tag := $image.tag | default .Chart.AppVersion -}}
 {{- $pull := $image.pullPolicy | default "IfNotPresent" -}}
-{{- $toolsSize := ($storage.tools | default dict).size | default "10Gi" -}}
-{{- $cacheSize := ($storage.cache | default dict).size | default "5Gi" -}}
-{{- $dataSize := ($storage.data | default dict).size | default "10Gi" -}}
+{{- $toolsSize := ($required.tools | default dict).size | default "10Gi" -}}
+{{- $cacheSize := ($required.cache | default dict).size | default "5Gi" -}}
+{{- $dataSize := ($required.data | default dict).size | default "10Gi" -}}
 {{- $svcType := $svc.type | default "ClusterIP" -}}
 {{- $svcPort := $svc.port | default 42617 -}}
 {{- $probesCfg := $v.probes | default dict -}}
@@ -47,9 +49,22 @@
        so a probe against a loopback-bound daemon fails — and a liveness probe
        would then restart a pod that was working perfectly. */ -}}
 {{- $reachable := or $svcEnabled $probesOn -}}
-{{- $toolsSpec := $storage.tools | default dict -}}
-{{- $cacheSpec := $storage.cache | default dict -}}
-{{- $dataSpec := $storage.data | default dict -}}
+{{- $toolsSpec := $required.tools | default dict -}}
+{{- $cacheSpec := $required.cache | default dict -}}
+{{- $dataSpec := $required.data | default dict -}}
+{{- /* What backs each of the three paths. The chart owns the path; this is the one
+       thing about a required volume the deployer decides. Any value but these two
+       is refused by the schema's enum, before this template runs. */ -}}
+{{- $toolsType := $toolsSpec.type | default "persistentVolumeClaim" -}}
+{{- $cacheType := $cacheSpec.type | default "persistentVolumeClaim" -}}
+{{- $dataType := $dataSpec.type | default "persistentVolumeClaim" -}}
+{{- /* The paths the chart occupies. A deployer's extra volume may not land on one
+       of them: k8s would reject the duplicate mountPath, but only after the
+       release is half-applied, and the message would not say which key did it.
+       These are also the keys the chart's own persistence entries use, so an
+       extra volume may not be named one of them either. */ -}}
+{{- $chartPaths := list "/tools" "/cache" "/zeroclaw-data" "/config" -}}
+{{- $chartKeys := list "tools" "cache" "data" "config" -}}
 {{- with $sched }}
 defaultPodOptions:
   {{- toYaml . | nindent 2 }}
@@ -140,12 +155,52 @@ service:
         protocol: HTTP
         primary: true
 {{- end }}
+{{- /* A required volume is a claim or an emptyDir, never both. An emptyDir creates
+       no claim, so a claim field named beside it would render a value nothing
+       reads — and the emptyDir fields beside a claim are the same mistake in the
+       other direction. Both fail here, naming the key and the field, in the same
+       shape as the extra-volume guards below: a value that renders nothing is
+       worse than a value that refuses. */ -}}
+{{- range $key, $spec := (dict "tools" $toolsSpec "cache" $cacheSpec "data" $dataSpec) }}
+{{- $kind := $spec.type | default "persistentVolumeClaim" }}
+{{- if eq $kind "emptyDir" }}
+{{- range $field := (list "size" "storageClass" "existingClaim") }}
+{{- if hasKey $spec $field }}
+{{- fail (printf "volumes.required.%s: type emptyDir creates no claim, so %s cannot be set; drop one of the two" $key $field) }}
+{{- end }}
+{{- end }}
+{{- else }}
+{{- range $field := (list "medium" "sizeLimit") }}
+{{- if hasKey $spec $field }}
+{{- fail (printf "volumes.required.%s: %s is an emptyDir field and this volume is a %s; set type: emptyDir or drop it" $key $field $kind) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- /* Every claim the chart creates carries a pinned `suffix`, so its name is
+       <fullname>-<key> in every combination. The library appends the identifier
+       only when a chart renders more than one claim (common:
+       lib/common/_determineResourceNameFromValues.tpl, `itemCount > 1`), which
+       makes the name depend on how many of the other volumes happen to be
+       ephemeral: flipping two of the three required volumes to emptyDir would
+       rename the survivor to the bare release name — a NEW, empty claim created
+       beside the retained one it orphaned. That is the failure the `keep`
+       annotation exists to prevent, so the name is pinned instead of inherited. */}}
 persistence:
   tools:
-    {{- if $toolsSpec.existingClaim }}
+    {{- if eq $toolsType "emptyDir" }}
+    type: emptyDir
+    {{- with $toolsSpec.medium }}
+    medium: {{ . | quote }}
+    {{- end }}
+    {{- with $toolsSpec.sizeLimit }}
+    sizeLimit: {{ . | quote }}
+    {{- end }}
+    {{- else if $toolsSpec.existingClaim }}
     existingClaim: {{ $toolsSpec.existingClaim | quote }}
     {{- else }}
     type: persistentVolumeClaim
+    suffix: tools
     accessMode: ReadWriteOnce
     size: {{ $toolsSize }}
     retain: true
@@ -164,10 +219,19 @@ persistence:
           - path: /tools
             readOnly: true
   cache:
-    {{- if $cacheSpec.existingClaim }}
+    {{- if eq $cacheType "emptyDir" }}
+    type: emptyDir
+    {{- with $cacheSpec.medium }}
+    medium: {{ . | quote }}
+    {{- end }}
+    {{- with $cacheSpec.sizeLimit }}
+    sizeLimit: {{ . | quote }}
+    {{- end }}
+    {{- else if $cacheSpec.existingClaim }}
     existingClaim: {{ $cacheSpec.existingClaim | quote }}
     {{- else }}
     type: persistentVolumeClaim
+    suffix: cache
     accessMode: ReadWriteOnce
     size: {{ $cacheSize }}
     retain: true
@@ -178,10 +242,19 @@ persistence:
     globalMounts:
       - path: /cache
   data:
-    {{- if $dataSpec.existingClaim }}
+    {{- if eq $dataType "emptyDir" }}
+    type: emptyDir
+    {{- with $dataSpec.medium }}
+    medium: {{ . | quote }}
+    {{- end }}
+    {{- with $dataSpec.sizeLimit }}
+    sizeLimit: {{ . | quote }}
+    {{- end }}
+    {{- else if $dataSpec.existingClaim }}
     existingClaim: {{ $dataSpec.existingClaim | quote }}
     {{- else }}
     type: persistentVolumeClaim
+    suffix: data
     accessMode: ReadWriteOnce
     size: {{ $dataSize }}
     retain: true
@@ -191,6 +264,111 @@ persistence:
     {{- end }}
     globalMounts:
       - path: /zeroclaw-data
+{{- /* Extra volumes: one persistence entry per key, mounted into the agent
+       container and nothing else — the two root init containers must never carry
+       a deployer's credential. Hence advancedMounts.main.main rather than
+       globalMounts, which would reach every container in the pod. */ -}}
+{{- $mounted := dict -}}
+{{- range $key, $spec := $extra }}
+  {{- if has $key $chartKeys }}
+  {{- fail (printf "volumes.extra.%s: the chart already owns a volume under this name; choose another key" $key) }}
+  {{- end }}
+  {{- $type := $spec.type | default "persistentVolumeClaim" }}
+  {{- $mountPath := $spec.path | default (printf "/%s" $key) }}
+  {{- if eq $type "image" }}
+  {{- /* The library only handles type image from k8s 1.33 (the ImageVolume
+         feature). Below that it falls through to "Not a valid persistence.type",
+         which names neither the key nor the real requirement. */ -}}
+  {{- $minor := regexReplaceAll "[^0-9]" $.Capabilities.KubeVersion.Minor "" | int }}
+  {{- if lt $minor 33 }}
+  {{- fail (printf "volumes.extra.%s: type image needs Kubernetes 1.33 or newer (ImageVolume); this render targets %s" $key $.Capabilities.KubeVersion.Version) }}
+  {{- end }}
+  {{- end }}
+  {{- /* A claim entry with neither a size nor an adopted claim renders `size:`
+         empty: the schema accepts it (there is no chart default to fall back on,
+         the way there is for the three required volumes) and k8s rejects it at
+         sync, naming neither the key nor the field that is missing. */ -}}
+  {{- if and (eq $type "persistentVolumeClaim") (not $spec.existingClaim) (not $spec.size) }}
+  {{- fail (printf "volumes.extra.%s: type persistentVolumeClaim needs size or existingClaim" $key) }}
+  {{- end }}
+  {{- if has $mountPath $chartPaths }}
+  {{- fail (printf "volumes.extra.%s: %s is mounted by the chart; choose another path" $key $mountPath) }}
+  {{- end }}
+  {{- if hasKey $mounted $mountPath }}
+  {{- fail (printf "volumes.extra.%s: %s is already mounted by volumes.extra.%s" $key $mountPath (get $mounted $mountPath)) }}
+  {{- end }}
+  {{- $_ := set $mounted $mountPath $key }}
+  {{ $key }}:
+    type: {{ $type }}
+    {{- if eq $type "persistentVolumeClaim" }}
+    {{- if $spec.existingClaim }}
+    existingClaim: {{ $spec.existingClaim | quote }}
+    {{- else }}
+    suffix: {{ $key }}
+    accessMode: {{ $spec.accessMode | default "ReadWriteOnce" }}
+    size: {{ $spec.size }}
+    retain: true
+    {{- with $spec.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+    {{- end }}
+    {{- else if or (eq $type "secret") (eq $type "configMap") }}
+    {{- with $spec.name }}
+    name: {{ . | quote }}
+    {{- end }}
+    {{- with $spec.identifier }}
+    identifier: {{ . | quote }}
+    {{- end }}
+    {{- with $spec.defaultMode }}
+    defaultMode: {{ . }}
+    {{- end }}
+    {{- with $spec.items }}
+    items:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- else if eq $type "projected" }}
+    {{- with $spec.defaultMode }}
+    defaultMode: {{ . }}
+    {{- end }}
+    sources:
+      {{- toYaml $spec.sources | nindent 6 }}
+    {{- else if eq $type "emptyDir" }}
+    {{- with $spec.medium }}
+    medium: {{ . | quote }}
+    {{- end }}
+    {{- with $spec.sizeLimit }}
+    sizeLimit: {{ . | quote }}
+    {{- end }}
+    {{- else if eq $type "ephemeral" }}
+    accessMode: {{ $spec.accessMode | default "ReadWriteOnce" }}
+    size: {{ $spec.size | quote }}
+    {{- with $spec.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+    {{- else if eq $type "hostPath" }}
+    hostPath: {{ $spec.hostPath | quote }}
+    {{- with $spec.hostPathType }}
+    hostPathType: {{ . | quote }}
+    {{- end }}
+    {{- else if eq $type "image" }}
+    {{- if kindIs "string" $spec.image }}
+    image: {{ $spec.image | quote }}
+    {{- else }}
+    image:
+      {{- toYaml $spec.image | nindent 6 }}
+    {{- end }}
+    {{- with $spec.pullPolicy }}
+    pullPolicy: {{ . }}
+    {{- end }}
+    {{- end }}
+    advancedMounts:
+      main:
+        main:
+          - path: {{ $mountPath }}
+            {{- if $spec.readOnly }}
+            readOnly: true
+            {{- end }}
+{{- end }}
   config:
     type: configMap
     identifier: config

@@ -35,9 +35,9 @@ spawns:
 
 Every tool has its own cache variable and mise cannot infer them, so this map is
 empty by default for the same reason `mise.tools` is: the variables follow from
-the tools you pinned. Pointing them at /cache (the {{ ((.Values.storage).cache).size | default "5Gi" }} claim) keeps disposable
-registries off the durable /zeroclaw-data volume — the per-tool list is in the
-chart README, and in mise.toml.example section 3.
+the tools you pinned. Pointing them at /cache keeps disposable registries off the durable
+/zeroclaw-data volume — the per-tool list is in the chart README, and in
+mise.toml.example section 3.
 
 Do not set the image's own mise variables here (MISE_DATA_DIR, MISE_RUSTUP_HOME,
 MISE_CACHE_DIR): mise reads them before mise.toml exists, so restating them
@@ -120,6 +120,25 @@ is working:
 
   kubectl -n {{ .Release.Namespace }} logs -f <pod> -c main
 
-The volumes are retained, so `helm uninstall` does not delete them. A plain
-reinstall afterwards fails on the existing claims — adopt them
-(storage.<volume>.existingClaim) or delete them and accept the re-download.
+{{- $required := (.Values.volumes).required | default dict }}
+{{- $ephemeral := list }}
+{{- $claims := list }}
+{{- $cost := dict "tools" "the init container re-installs the toolchains on the next start" "cache" "caches are re-downloaded as they are used" "data" "the daemon's state is gone" }}
+{{- range $key, $spec := $required }}
+{{- if eq (($spec | default dict).type | default "persistentVolumeClaim") "emptyDir" }}{{ $ephemeral = append $ephemeral $key }}{{ else }}{{ $claims = append $claims $key }}{{ end }}
+{{- end }}
+{{- if $ephemeral }}
+
+EPHEMERAL, backed by an emptyDir — recreated empty at every pod restart:
+{{- range $key := $ephemeral }}
+  * /{{ if eq $key "data" }}zeroclaw-data{{ else }}{{ $key }}{{ end }} — {{ get $cost $key }}
+{{- end }}
+{{- end }}
+{{- if $claims }}
+
+Claim-backed: {{ join ", " $claims }}. Every claim the chart creates carries
+`helm.sh/resource-policy: keep`, so `helm uninstall` leaves it behind on purpose —
+deleting an orphaned claim is a deliberate one-liner, recovering /zeroclaw-data is
+not. A plain reinstall then fails on the existing claims: adopt them
+(volumes.required.<volume>.existingClaim) or delete them and accept the re-download.
+{{- end }}

@@ -309,7 +309,7 @@ tests:
           pattern: 'CARGO_HOME = "/cache/cargo"'
 
   # ---------------------------------------------------------------------------
-  # storage
+  # volumes.required — the image's contract
   # ---------------------------------------------------------------------------
   - it: renders the tools claim at its default size
     documentSelector:
@@ -331,7 +331,7 @@ tests:
 
   - it: lets a claim size be overridden
     set:
-      storage.cache.size: 20Gi
+      volumes.required.cache.size: 20Gi
     documentSelector:
       path: metadata.name
       value: nilchela-cache
@@ -351,9 +351,9 @@ tests:
 
   - it: adopts an existing claim instead of creating one, for every volume
     set:
-      storage.tools.existingClaim: zeroclaw-tools
-      storage.cache.existingClaim: zeroclaw-cache
-      storage.data.existingClaim: zeroclaw-data
+      volumes.required.tools.existingClaim: zeroclaw-tools
+      volumes.required.cache.existingClaim: zeroclaw-cache
+      volumes.required.data.existingClaim: zeroclaw-data
     documentSelector:
       path: kind
       value: StatefulSet
@@ -376,6 +376,264 @@ tests:
             name: data
             persistentVolumeClaim:
               claimName: zeroclaw-data
+
+  # ---------------------------------------------------------------------------
+  # volumes.required — emptyDir: the no-provisioner and throwaway case
+  # ---------------------------------------------------------------------------
+  # emptyDir is opt-in and never the default, so each of the three has to be
+  # reachable on its own — /cache is disposable, /tools is the cold install
+  # the chart was built around, /zeroclaw-data is the daemon's state — and the
+  # claim fields have to stop being accepted the moment it is chosen.
+  - it: backs a required volume with an emptyDir when its type says so
+    set:
+      volumes.required.cache.type: emptyDir
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: cache
+            emptyDir: {}
+
+  - it: creates no claim for a required volume backed by an emptyDir
+    set:
+      volumes.required.cache.type: emptyDir
+    asserts:
+      - hasDocuments:
+          count: 6
+
+  # The library appends the identifier to a claim's name only when the chart
+  # renders MORE THAN ONE claim (common: `itemCount > 1`). Left alone, flipping
+  # two of the three to emptyDir would rename the survivor to the bare release
+  # name — a new, empty claim beside the retained one it orphaned, which is the
+  # one thing the `keep` annotation is there to prevent. The chart pins `suffix`,
+  # so the name is the same in every combination.
+  - it: keeps a required claim's name when the other two are emptyDir
+    set:
+      volumes.required.tools.type: emptyDir
+      volumes.required.data.type: emptyDir
+    documentSelector:
+      path: metadata.name
+      value: nilchela-cache
+    asserts:
+      - equal:
+          path: kind
+          value: PersistentVolumeClaim
+      - equal:
+          path: spec.resources.requests.storage
+          value: 5Gi
+
+  - it: names an extra claim after its key, not after the claim count
+    set:
+      volumes.required.tools.type: emptyDir
+      volumes.required.cache.type: emptyDir
+      volumes.required.data.type: emptyDir
+      volumes.extra.media.size: 100Gi
+    documentSelector:
+      path: metadata.name
+      value: nilchela-media
+    asserts:
+      - equal:
+          path: kind
+          value: PersistentVolumeClaim
+
+  - it: renders emptyDir medium and sizeLimit
+    set:
+      volumes.required.cache.type: emptyDir
+      volumes.required.cache.medium: Memory
+      volumes.required.cache.sizeLimit: 1Gi
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: cache
+            emptyDir:
+              medium: Memory
+              sizeLimit: 1Gi
+
+  - it: backs all three required volumes independently
+    set:
+      volumes.required.tools.type: emptyDir
+      volumes.required.data.type: emptyDir
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tools
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            emptyDir: {}
+      # The claim that is left is still a claim, under the same name: the chart
+      # pins each claim's `suffix`, so its name does not depend on how many other
+      # claims happen to be rendered. Without the pin the library would name it
+      # after the *count* — one claim left is `<release>`, not `<release>-cache`
+      # — and a volume turning ephemeral would silently rename (and orphan) the
+      # others.
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: cache
+            persistentVolumeClaim:
+              claimName: nilchela-cache
+
+  # The split that makes /tools work is per-container, not per-volume: the
+  # installer keeps its writable mount and the agent keeps read-only, whatever
+  # backs the path. An emptyDir is where losing that would be invisible, since the
+  # failure mode is an empty directory rather than a k8s error.
+  - it: keeps the /tools ownership split when the tools volume is an emptyDir
+    set:
+      volumes.required.tools.type: emptyDir
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tools
+            mountPath: /tools
+            readOnly: true
+      - contains:
+          path: spec.template.spec.initContainers[1].volumeMounts
+          content:
+            name: tools
+            mountPath: /tools
+
+  - it: refuses a claim size beside type emptyDir
+    set:
+      volumes.required.cache.type: emptyDir
+      volumes.required.cache.size: 5Gi
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.required.cache: type emptyDir creates no claim, so size cannot be set; drop one of the two"
+
+  - it: refuses a storage class beside type emptyDir
+    set:
+      volumes.required.cache.type: emptyDir
+      volumes.required.cache.storageClass: fast
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.required.cache: type emptyDir creates no claim, so storageClass cannot be set; drop one of the two"
+
+  - it: refuses an adopted claim beside type emptyDir
+    set:
+      volumes.required.cache.type: emptyDir
+      volumes.required.cache.existingClaim: zeroclaw-cache
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.required.cache: type emptyDir creates no claim, so existingClaim cannot be set; drop one of the two"
+
+  - it: refuses an emptyDir field on a claim
+    set:
+      volumes.required.cache.medium: Memory
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.required.cache: medium is an emptyDir field and this volume is a persistentVolumeClaim; set type: emptyDir or drop it"
+
+  # ---------------------------------------------------------------------------
+  # volumes.extra — what the deployer adds. The key IS the mount path.
+  # ---------------------------------------------------------------------------
+  - it: mounts an extra claim at the path its key names
+    set:
+      volumes.extra.media.existingClaim: media
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: media
+            persistentVolumeClaim:
+              claimName: media
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: media
+            mountPath: /media
+
+  - it: a path override moves the mount without renaming the volume
+    set:
+      volumes.extra.media.existingClaim: media
+      volumes.extra.media.path: /mnt/media
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: media
+            persistentVolumeClaim:
+              claimName: media
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: media
+            mountPath: /mnt/media
+
+  - it: mounts an extra volume in the agent container and no other
+    set:
+      volumes.extra.media.existingClaim: media
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: media
+      - notContains:
+          path: spec.template.spec.initContainers[1].volumeMounts
+          content:
+            name: media
+
+  # The one bare entry this surface refuses: an entry that names no `type` defaults
+  # to a claim, and a claim with neither a size nor an adopted claim renders
+  # `size:` empty — which k8s rejects at sync, naming neither the key nor the
+  # field. There is no chart default to fall back on here, unlike the three
+  # required volumes, whose paths and sizes are the image's contract.
+  - it: refuses an extra claim with neither a size nor an adopted claim
+    set:
+      volumes.extra.media: {}
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.extra.media: type persistentVolumeClaim needs size or existingClaim"
+
+  - it: refuses an extra key the chart already owns
+    set:
+      volumes.extra.tools.existingClaim: some-claim
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.extra.tools: the chart already owns a volume under this name; choose another key"
+
+  - it: refuses an extra volume on a path the chart owns
+    set:
+      volumes.extra.mytools.existingClaim: some-claim
+      volumes.extra.mytools.path: /tools
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.extra.mytools: /tools is mounted by the chart; choose another path"
+
+  - it: refuses two extra keys resolving to one mount path
+    set:
+      volumes.extra.one.existingClaim: claim-a
+      volumes.extra.two.existingClaim: claim-b
+      volumes.extra.two.path: /one
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.extra.two: /one is already mounted by volumes.extra.one"
 
   # ---------------------------------------------------------------------------
   # scheduling passthrough
