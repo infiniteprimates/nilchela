@@ -71,7 +71,7 @@ for a translation.
 
 What that buys:
 
-- **No vocabulary leak.** `image.tag`, `tools.go`, `storage.tools.size`. No
+- **No vocabulary leak.** `image.tag`, `tools.go`, `volumes.required.tools.size`. No
   collections, no `advancedMounts`, no `main` as a magic key, no `app-template:`
   nesting, and no ConfigMap key that has to be escaped on the command line.
 - **Fail-fast input.** Unknown or malformed keys fail the render. A chart that
@@ -221,10 +221,31 @@ resources:
   # no limits by default: this is a build host, and a limit turns a slow
   # `cargo build` into an OOMKill
 
-storage:
-  tools: { size: 10Gi }        # or: existingClaim: zeroclaw-tools
-  cache: { size: 5Gi }
-  data:  { size: 10Gi }
+volumes:
+  # The image's contract: the three claims it expects at /tools, /cache and
+  # /zeroclaw-data. The chart owns those paths, so `path` and `type` are refused.
+  required:
+    tools: { size: 10Gi }        # or: existingClaim: zeroclaw-tools
+    cache: { size: 5Gi }
+    data:  { size: 10Gi }
+
+  # What you add. The key IS the mount path.
+  extra: {}
+    # media: { existingClaim: media, readOnly: true }
+    #
+    # One directory, several sources, one mount — the kubelet refreshes a mounted
+    # Secret in place, so a rotating credential needs no restart, unlike `env`.
+    # agent-secrets:
+    #   type: projected
+    #   path: /var/run/agent-secrets/tony
+    #   defaultMode: "0444"
+    #   sources:
+    #     - secret: { name: zeroclaw-hermione-app-token, items: [ { key: token, path: gh/token } ] }
+    #
+    # Eight source types are available: persistentVolumeClaim, secret, configMap,
+    # projected, emptyDir, ephemeral, hostPath, image. `nfs` is not one of them —
+    # its export path and the mount path would both be called `path` — and neither
+    # is `custom`, because a raw passthrough is what this surface replaces.
 
 gateway:
   service: { enabled: true, type: ClusterIP, port: 42617 }
@@ -235,14 +256,15 @@ scheduling:                    # passed through to the pod spec
   affinity: {}
 ```
 
-All three created claims are annotated `helm.sh/resource-policy: keep`, so
-`helm uninstall` leaves them behind on purpose. Deleting an orphaned claim is a
-deliberate one-liner; recovering `/zeroclaw-data` after an accidental uninstall
-is not. To reattach one after an uninstall, set `storage.<volume>.existingClaim`
-— all three volumes take it, as an alternative to `size` — and note that an
-adopted claim is left unannotated, because it is not ours to say what happens to
-it next. The claim is used as-is: its size and storage class are whatever it
-already had, and this chart does not resize or re-provision it.
+Every claim the chart creates is annotated `helm.sh/resource-policy: keep` — the
+three `required` ones and any `volumes.extra` claim — so `helm uninstall` leaves
+them behind on purpose. Deleting an orphaned claim is a deliberate one-liner;
+recovering `/zeroclaw-data` after an accidental uninstall is not. To reattach one
+after an uninstall, set `volumes.required.<volume>.existingClaim` — all three take
+it, as an alternative to `size` — and note that an adopted claim is left
+unannotated, because it is not ours to say what happens to it next. The claim is
+used as-is: its size and storage class are whatever it already had, and this chart
+does not resize or re-provision it.
 
 ### What is deliberately not exposed
 

@@ -35,7 +35,7 @@ spawns:
 
 Every tool has its own cache variable and mise cannot infer them, so this map is
 empty by default for the same reason `mise.tools` is: the variables follow from
-the tools you pinned. Pointing them at /cache (the {{ ((.Values.storage).cache).size | default "5Gi" }} claim) keeps disposable
+the tools you pinned. Pointing them at /cache (the {{ ((.Values.volumes.required).cache).size | default "5Gi" }} claim) keeps disposable
 registries off the durable /zeroclaw-data volume — the per-tool list is in the
 chart README, and in mise.toml.example section 3.
 
@@ -122,4 +122,4 @@ is working:
 
 The volumes are retained, so `helm uninstall` does not delete them. A plain
 reinstall afterwards fails on the existing claims — adopt them
-(storage.<volume>.existingClaim) or delete them and accept the re-download.
+(volumes.required.<volume>.existingClaim) or delete them and accept the re-download.

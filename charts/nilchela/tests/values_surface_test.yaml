@@ -309,7 +309,7 @@ tests:
           pattern: 'CARGO_HOME = "/cache/cargo"'
 
   # ---------------------------------------------------------------------------
-  # storage
+  # volumes.required — the image's contract
   # ---------------------------------------------------------------------------
   - it: renders the tools claim at its default size
     documentSelector:
@@ -331,7 +331,7 @@ tests:
 
   - it: lets a claim size be overridden
     set:
-      storage.cache.size: 20Gi
+      volumes.required.cache.size: 20Gi
     documentSelector:
       path: metadata.name
       value: nilchela-cache
@@ -351,9 +351,9 @@ tests:
 
   - it: adopts an existing claim instead of creating one, for every volume
     set:
-      storage.tools.existingClaim: zeroclaw-tools
-      storage.cache.existingClaim: zeroclaw-cache
-      storage.data.existingClaim: zeroclaw-data
+      volumes.required.tools.existingClaim: zeroclaw-tools
+      volumes.required.cache.existingClaim: zeroclaw-cache
+      volumes.required.data.existingClaim: zeroclaw-data
     documentSelector:
       path: kind
       value: StatefulSet
@@ -376,6 +376,88 @@ tests:
             name: data
             persistentVolumeClaim:
               claimName: zeroclaw-data
+
+  # ---------------------------------------------------------------------------
+  # volumes.extra — what the deployer adds. The key IS the mount path.
+  # ---------------------------------------------------------------------------
+  - it: mounts an extra claim at the path its key names
+    set:
+      volumes.extra.media.existingClaim: media
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: media
+            persistentVolumeClaim:
+              claimName: media
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: media
+            mountPath: /media
+
+  - it: a path override moves the mount without renaming the volume
+    set:
+      volumes.extra.media.existingClaim: media
+      volumes.extra.media.path: /mnt/media
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: media
+            persistentVolumeClaim:
+              claimName: media
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: media
+            mountPath: /mnt/media
+
+  - it: mounts an extra volume in the agent container and no other
+    set:
+      volumes.extra.media.existingClaim: media
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: media
+      - notContains:
+          path: spec.template.spec.initContainers[1].volumeMounts
+          content:
+            name: media
+
+  - it: refuses an extra key the chart already owns
+    set:
+      volumes.extra.tools.existingClaim: some-claim
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.extra.tools: the chart already owns a volume under this name; choose another key"
+
+  - it: refuses an extra volume on a path the chart owns
+    set:
+      volumes.extra.mytools.existingClaim: some-claim
+      volumes.extra.mytools.path: /tools
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.extra.mytools: /tools is mounted by the chart; choose another path"
+
+  - it: refuses two extra keys resolving to one mount path
+    set:
+      volumes.extra.one.existingClaim: claim-a
+      volumes.extra.two.existingClaim: claim-b
+      volumes.extra.two.path: /one
+    asserts:
+      - failedTemplate:
+          errorMessage: "volumes.extra.two: /one is already mounted by volumes.extra.one"
 
   # ---------------------------------------------------------------------------
   # scheduling passthrough
