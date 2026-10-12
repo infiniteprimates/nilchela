@@ -84,22 +84,59 @@ resources:
   # No limits on purpose: this is a build host. A CPU/memory limit turns a slow
   # `cargo build` into an OOMKill instead.
 
-# The three claims. `size` creates a claim; `existingClaim` adopts one you
-# already have instead (an uninstalled release leaves its claims behind — see
-# README). All created claims are annotated `helm.sh/resource-policy: keep`.
-storage:
-  tools:
-    size: 10Gi
-    # existingClaim: zeroclaw-tools
-    # storageClass: ""
-  cache:
-    size: 5Gi
-    # existingClaim: zeroclaw-cache
-    # storageClass: ""
-  data:
-    size: 10Gi
-    # existingClaim: zeroclaw-data
-    # storageClass: ""
+# Volumes, in two sections.
+#
+# `required` is the image's contract: the three claims the image expects at
+# /tools, /cache and /zeroclaw-data. The chart owns those paths, which is why
+# `path` and `type` are refused here. `size` creates a claim; `existingClaim`
+# adopts one you already have instead (an uninstalled release leaves its claims
+# behind — see README). Every claim the chart creates is annotated
+# `helm.sh/resource-policy: keep`.
+#
+# `extra` is everything you add. The key IS the mount path — `media` mounts at
+# /media — and `path:` overrides it for a nested route. `type` defaults to
+# persistentVolumeClaim; `secret`, `configMap`, `projected`, `emptyDir` and
+# `hostPath` take the fields their kind needs. Mounting machinery is deliberately
+# not exposed: the chart places every mount, in the container it chooses.
+#
+# Nothing under `extra` may resolve onto /tools, /cache, /zeroclaw-data or
+# /config, and no key may be named tools, cache, data or config — the render
+# fails naming both sides rather than letting k8s fail later.
+volumes:
+  required:
+    tools:
+      size: 10Gi
+      # existingClaim: zeroclaw-tools
+      # storageClass: ""
+    cache:
+      size: 5Gi
+      # existingClaim: zeroclaw-cache
+      # storageClass: ""
+    data:
+      size: 10Gi
+      # existingClaim: zeroclaw-data
+      # storageClass: ""
+  extra: {}
+    # media:
+    #   existingClaim: media
+    #   readOnly: true
+    #
+    # The common route: one directory, several sources, one mount. The kubelet
+    # refreshes a mounted Secret in place, so a rotating credential needs no
+    # restart — unlike `env`, which is read once at container start.
+    # agent-secrets:
+    #   type: projected
+    #   path: /var/run/agent-secrets/tony   # default would be /agent-secrets
+    #   defaultMode: "0444"
+    #   sources:
+    #     - secret:
+    #         name: zeroclaw-hermione-app-token
+    #         items:
+    #           - { key: token, path: gh/token }
+    #     - serviceAccountToken:
+    #         audience: rustfs
+    #         expirationSeconds: 3600
+    #         path: rustfs/token
 
 # Probes. Readiness and liveness ship ON; startup is off. They are what makes the
 # pod's Ready state mean anything — with every probe disabled the kubelet reports

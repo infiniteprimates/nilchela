@@ -20,7 +20,9 @@
 {{- $svc := $gw.service | default dict -}}
 {{- $svcEnabled := ternary $svc.enabled true (hasKey $svc "enabled") -}}
 {{- $userEnv := $v.env | default dict -}}
-{{- $storage := $v.storage | default dict -}}
+{{- $volumes := $v.volumes | default dict -}}
+{{- $required := $volumes.required | default dict -}}
+{{- $extra := $volumes.extra | default dict -}}
 {{- $tools := ($v.mise | default dict).tools | default dict -}}
 {{- $miseEnv := ($v.mise | default dict).env | default dict -}}
 {{- $sched := $v.scheduling | default dict -}}
@@ -28,9 +30,9 @@
 {{- $repo := $image.repository | default "ghcr.io/infiniteprimates/nilchela" -}}
 {{- $tag := $image.tag | default .Chart.AppVersion -}}
 {{- $pull := $image.pullPolicy | default "IfNotPresent" -}}
-{{- $toolsSize := ($storage.tools | default dict).size | default "10Gi" -}}
-{{- $cacheSize := ($storage.cache | default dict).size | default "5Gi" -}}
-{{- $dataSize := ($storage.data | default dict).size | default "10Gi" -}}
+{{- $toolsSize := ($required.tools | default dict).size | default "10Gi" -}}
+{{- $cacheSize := ($required.cache | default dict).size | default "5Gi" -}}
+{{- $dataSize := ($required.data | default dict).size | default "10Gi" -}}
 {{- $svcType := $svc.type | default "ClusterIP" -}}
 {{- $svcPort := $svc.port | default 42617 -}}
 {{- $probesCfg := $v.probes | default dict -}}
@@ -47,9 +49,16 @@
        so a probe against a loopback-bound daemon fails — and a liveness probe
        would then restart a pod that was working perfectly. */ -}}
 {{- $reachable := or $svcEnabled $probesOn -}}
-{{- $toolsSpec := $storage.tools | default dict -}}
-{{- $cacheSpec := $storage.cache | default dict -}}
-{{- $dataSpec := $storage.data | default dict -}}
+{{- $toolsSpec := $required.tools | default dict -}}
+{{- $cacheSpec := $required.cache | default dict -}}
+{{- $dataSpec := $required.data | default dict -}}
+{{- /* The paths the chart occupies. A deployer's extra volume may not land on one
+       of them: k8s would reject the duplicate mountPath, but only after the
+       release is half-applied, and the message would not say which key did it.
+       These are also the keys the chart's own persistence entries use, so an
+       extra volume may not be named one of them either. */ -}}
+{{- $chartPaths := list "/tools" "/cache" "/zeroclaw-data" "/config" -}}
+{{- $chartKeys := list "tools" "cache" "data" "config" -}}
 {{- with $sched }}
 defaultPodOptions:
   {{- toYaml . | nindent 2 }}
@@ -191,6 +200,103 @@ persistence:
     {{- end }}
     globalMounts:
       - path: /zeroclaw-data
+{{- /* Extra volumes: one persistence entry per key, mounted into the agent
+       container and nothing else — the two root init containers must never carry
+       a deployer's credential. Hence advancedMounts.main.main rather than
+       globalMounts, which would reach every container in the pod. */ -}}
+{{- $mounted := dict -}}
+{{- range $key, $spec := $extra }}
+  {{- if has $key $chartKeys }}
+  {{- fail (printf "volumes.extra.%s: the chart already owns a volume under this name; choose another key" $key) }}
+  {{- end }}
+  {{- $type := $spec.type | default "persistentVolumeClaim" }}
+  {{- $mountPath := $spec.path | default (printf "/%s" $key) }}
+  {{- if eq $type "image" }}
+  {{- /* The library only handles type image from k8s 1.33 (the ImageVolume
+         feature). Below that it falls through to "Not a valid persistence.type",
+         which names neither the key nor the real requirement. */ -}}
+  {{- $minor := regexReplaceAll "[^0-9]" $.Capabilities.KubeVersion.Minor "" | int }}
+  {{- if lt $minor 33 }}
+  {{- fail (printf "volumes.extra.%s: type image needs Kubernetes 1.33 or newer (ImageVolume); this render targets %s" $key $.Capabilities.KubeVersion.Version) }}
+  {{- end }}
+  {{- end }}
+  {{- if has $mountPath $chartPaths }}
+  {{- fail (printf "volumes.extra.%s: %s is mounted by the chart; choose another path" $key $mountPath) }}
+  {{- end }}
+  {{- if hasKey $mounted $mountPath }}
+  {{- fail (printf "volumes.extra.%s: %s is already mounted by volumes.extra.%s" $key $mountPath (get $mounted $mountPath)) }}
+  {{- end }}
+  {{- $_ := set $mounted $mountPath $key }}
+  {{ $key }}:
+    type: {{ $type }}
+    {{- if eq $type "persistentVolumeClaim" }}
+    {{- if $spec.existingClaim }}
+    existingClaim: {{ $spec.existingClaim | quote }}
+    {{- else }}
+    accessMode: {{ $spec.accessMode | default "ReadWriteOnce" }}
+    size: {{ $spec.size }}
+    retain: true
+    {{- with $spec.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+    {{- end }}
+    {{- else if or (eq $type "secret") (eq $type "configMap") }}
+    {{- with $spec.name }}
+    name: {{ . | quote }}
+    {{- end }}
+    {{- with $spec.identifier }}
+    identifier: {{ . | quote }}
+    {{- end }}
+    {{- with $spec.defaultMode }}
+    defaultMode: {{ . }}
+    {{- end }}
+    {{- with $spec.items }}
+    items:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- else if eq $type "projected" }}
+    {{- with $spec.defaultMode }}
+    defaultMode: {{ . }}
+    {{- end }}
+    sources:
+      {{- toYaml $spec.sources | nindent 6 }}
+    {{- else if eq $type "emptyDir" }}
+    {{- with $spec.medium }}
+    medium: {{ . | quote }}
+    {{- end }}
+    {{- with $spec.sizeLimit }}
+    sizeLimit: {{ . | quote }}
+    {{- end }}
+    {{- else if eq $type "ephemeral" }}
+    accessMode: {{ $spec.accessMode | default "ReadWriteOnce" }}
+    size: {{ $spec.size | quote }}
+    {{- with $spec.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+    {{- else if eq $type "hostPath" }}
+    hostPath: {{ $spec.hostPath | quote }}
+    {{- with $spec.hostPathType }}
+    hostPathType: {{ . | quote }}
+    {{- end }}
+    {{- else if eq $type "image" }}
+    {{- if kindIs "string" $spec.image }}
+    image: {{ $spec.image | quote }}
+    {{- else }}
+    image:
+      {{- toYaml $spec.image | nindent 6 }}
+    {{- end }}
+    {{- with $spec.pullPolicy }}
+    pullPolicy: {{ . }}
+    {{- end }}
+    {{- end }}
+    advancedMounts:
+      main:
+        main:
+          - path: {{ $mountPath }}
+            {{- if $spec.readOnly }}
+            readOnly: true
+            {{- end }}
+{{- end }}
   config:
     type: configMap
     identifier: config
