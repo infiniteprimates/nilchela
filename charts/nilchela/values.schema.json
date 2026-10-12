@@ -48,15 +48,13 @@
     },
     "volumes": {
       "type": "object",
-      "description": "Two sections, because they answer two different questions. `required` is the image's contract — the three volumes it expects at /tools, /cache and /zeroclaw-data — so the chart owns those paths and `path` is refused there; each is a claim by default, and `type: emptyDir` trades the claim for a pod-local directory. `extra` is what the deployer adds, where the key IS the mount path.",
+      "description": "Two sections, because they answer two different questions. `required` is the image's contract — the three volumes it expects at /tools, /cache and /zeroclaw-data — so the chart owns those paths and `path` is refused there; each is a claim by default, and `type: emptyDir` trades the claim for a pod-local directory. `extra` is what the deployer adds, where the key IS the mount path. Both sections are optional: values.yaml supplies every key below, so a values file names only what it changes.",
       "additionalProperties": false,
-      "required": ["required", "extra"],
       "properties": {
         "required": {
           "type": "object",
           "description": "The image's three volumes. A closed set: `path` is not accepted, because the chart places it. `type` chooses what backs the path — a claim or an emptyDir — and nothing else about the mount is yours to move.",
           "additionalProperties": false,
-          "required": ["tools", "cache", "data"],
           "properties": {
             "tools": { "$ref": "#/definitions/requiredVolume" },
             "cache": { "$ref": "#/definitions/requiredVolume" },
