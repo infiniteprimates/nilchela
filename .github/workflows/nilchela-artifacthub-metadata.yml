@@ -1,0 +1,69 @@
+# Publish the Artifact Hub repository metadata for both of this project's OCI
+# repositories.
+#
+# It is what earns each listing its "Verified publisher" flag: the flag appears
+# on the next processing pass after a matching `repositoryID` shows up at that
+# tag.
+#
+# Runs unconditionally on every merge to main, deliberately. The metadata is not
+# versioned and does not depend on anything having been published — there is no
+# version to probe for — and re-pushing an identical few-hundred-byte artifact is
+# idempotent. Running every time also means a deleted or overwritten
+# `artifacthub.io` tag is restored by the next merge, rather than waiting for
+# someone to notice that a listing quietly lost its verified flag.
+name: Nilchela Artifact Hub Metadata
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  repository-metadata:
+    name: Repository metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Log in to GHCR
+        # oras keeps its own credential store; the helm login in the chart
+        # publish workflow does not reach it, so this job logs in for itself.
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${TOKEN}" | oras login "${REGISTRY}" \
+            --username "${{ github.actor }}" --password-stdin
+
+      - name: Publish the chart repository metadata
+        # Run from the directory holding the file so the pushed layer keeps the
+        # filename Artifact Hub documents, with no renaming step in between.
+        working-directory: artifacthub/chart
+        run: |
+          set -euo pipefail
+          oras push ghcr.io/infiniteprimates/charts/nilchela:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+
+      - name: Publish the image repository metadata
+        # The `artifacthub.io` tag lands beside the image tags. It is not an
+        # image and not semver, so nothing pulls it as one and Artifact Hub does
+        # not index it as a version.
+        working-directory: artifacthub/container
+        run: |
+          set -euo pipefail
+          oras push ghcr.io/infiniteprimates/nilchela:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml

@@ -8,6 +8,8 @@
 
 ---
 
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/nilchela)](https://artifacthub.io/packages/search?repo=nilchela) [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/nilchela-charts)](https://artifacthub.io/packages/search?repo=nilchela-charts)
+
 A thin, development-enabled image for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) agents — the official base plus a clean pattern for provisioning language toolchains *at runtime* instead of baking them in, built on `build-essential` and the [`mise`](https://mise.jdx.dev) version manager.
 
 Built with ❤️ by [rawlink](https://github.com/rawlink) on the official [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) base image (MIT OR Apache-2.0). nilchela is an independent community project and is not affiliated with or endorsed by ZeroClaw Labs.
@@ -76,7 +78,7 @@ Use the release name `nilchela` and you get StatefulSet `nilchela` with PVCs `ni
 
 Full values reference, naming rules, and the reasoning behind the no-`fsGroup` ownership model: [`charts/nilchela/README.md`](charts/nilchela/README.md). Your cluster's specifics — namespace, storage classes, resources — stay in your own values file or infra repo; the chart only wants values.
 
-> The chart is not published to an OCI registry yet, so `git clone` is the install path. Until then, pin to a commit or tag if you're wiring it into a GitOps repo.
+> The chart is published to GHCR as an OCI artifact, so a clone is not needed to consume it: `helm install nilchela oci://ghcr.io/infiniteprimates/charts/nilchela --version <version>`. The clone above is the path for working on the chart itself — pin to a commit or tag if you're wiring that into a GitOps repo.
 
 ### Docker
 
@@ -110,11 +112,15 @@ Start from [`mise.toml.example`](mise.toml.example), and read [`docs/docker.md` 
 
 ## Publishing
 
-The image is published to **GitHub Container Registry** (`ghcr.io/infiniteprimates/nilchela`) **on `v*` git tags only**, multi-arch, as `<semver>` / `<major>.<minor>` / `sha-<commit>`. No `latest`. Pull requests build but never push.
+Two artifacts ship from this repo, and they release on different triggers.
 
-GHCR creates the package on first push and defaults it to **private** — set its visibility to public in the package settings, or nobody outside the org can pull it.
+**The image** goes to **GitHub Container Registry** (`ghcr.io/infiniteprimates/nilchela`) **on `v*` git tags only**, multi-arch, as `<semver>` / `<major>.<minor>` / `sha-<commit>`. No `latest`. Pull requests build but never push. Push a `v*` tag to publish; pushing to `main` publishes no image.
 
-Push a `v*` tag to publish; pushing to `main` publishes nothing. Registry details and how to point the workflow at a different registry: [`docs/docker.md` → Publishing](docs/docker.md#publishing).
+**The chart** goes to the same registry as an OCI artifact (`ghcr.io/infiniteprimates/charts/nilchela`) **on every push to `main`**, by [`.github/workflows/nilchela-chart-publish.yaml`](.github/workflows/nilchela-chart-publish.yaml). The event is not the trigger — the version is: the workflow reads `version:` from `charts/nilchela/Chart.yaml`, probes the registry, and publishes only if that version is absent. So a chart release is a version bump, a merge that does not bump it is a no-op, and a published version is immutable. Each publish creates the annotated tag `chart-v<version>` on the merge commit it came from.
+
+GHCR creates either package on first push and defaults it to **private** — set its visibility to public in the package settings, or nobody outside the org can pull it.
+
+Registry details and how to point the image workflow at a different registry: [`docs/docker.md` → Publishing](docs/docker.md#publishing).
 
 ---
 

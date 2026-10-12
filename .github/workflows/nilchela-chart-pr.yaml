@@ -4,7 +4,7 @@
 # agent cannot create or update this file -- GitHub rejects the push outright:
 #
 #   refusing to allow a GitHub App to create or update workflow
-#   `.github/workflows/nilchela-helm-pr.yaml` without `workflows` permission
+#   `.github/workflows/nilchela-chart-pr.yaml` without `workflows` permission
 #
 # Layers, cheapest first:
 #   1. helm lint                      chart conventions and template syntax
@@ -27,7 +27,7 @@
 # ships no storage provisioner while the chart renders three retained PVCs.
 # That belongs on a schedule or behind a label, not on every PR.
 
-name: Nilchela Helm Chart PR
+name: Nilchela Chart PR
 
 on:
   pull_request:
@@ -56,7 +56,7 @@ env:
   KUBERNETES_VERSION: "1.31.0"
 
 jobs:
-  chart:
+  chart-pr:
     name: Chart PR
     runs-on: ubuntu-latest
     timeout-minutes: 5

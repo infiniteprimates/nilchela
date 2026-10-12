@@ -5,14 +5,14 @@ description: |
   mise-managed toolchains at runtime instead of baking them into the image.
 type: application
 
-# Chart version — bump on any chart change (SemVer). Starts at 0.0.0 to match
+# Chart version — bump on any chart change (SemVer). Started at 0.0.0 to match
 # the image's own versioning, which also begins at v0.0.0.
-version: 0.0.0
+version: 0.0.1
 
 # Application version — the nilchela IMAGE version this chart deploys by
 # default. An empty `image.tag` in values.yaml means this value;
 # tests/chart_contract.py fails the build if the two drift.
-appVersion: "0.0.3"
+appVersion: "0.0.5"
 
 # The bjw-s `common` library requires Kubernetes >= 1.31 -- read off the
 # dependency's own Chart.yaml (`common` 5.2.1 declares `>=1.31.0-0`), not
@@ -25,6 +25,14 @@ kubeVersion: ">=1.31.0-0"
 home: https://github.com/infiniteprimates/nilchela
 sources:
   - https://github.com/infiniteprimates/nilchela
+
+# The chart's own logo — what Artifact Hub shows on the package page and beside
+# the chart in its search results. There is no logo annotation for Helm packages
+# (the annotations list has links, screenshots, license, maintainers, changes —
+# not a logo), so this Chart.yaml field is the only route. It has to be a public
+# URL, and SVG is explicitly allowed by Helm's chart metadata spec. Pointed at
+# `main` deliberately: the mark can be corrected without republishing a version.
+icon: https://raw.githubusercontent.com/infiniteprimates/nilchela/main/docs/assets/nilchela-logo.svg
 
 maintainers:
   - name: rawlink

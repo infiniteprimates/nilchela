@@ -6,13 +6,28 @@ single-replica StatefulSet with its volumes, its `mise.toml` ConfigMap, the
 ownership model the image expects, and a ClusterIP Service in front of the
 ZeroClaw gateway.
 
-- Chart version: `0.0.0` · App version: `0.0.3` (the image tag it deploys)
+- Chart version: `0.0.1` · App version: `0.0.5` (the image tag it deploys)
 - Requires Kubernetes `>= 1.31` (the render library's floor) and Helm 3.x
+
+Consume the published artifact — no clone, no `repo add`:
+
+```bash
+helm install nilchela oci://ghcr.io/infiniteprimates/charts/nilchela --version <version>
+```
+
+Or from a clone, which is the path for working on the chart itself:
 
 ```bash
 helm dependency build charts/nilchela
 helm install nilchela charts/nilchela
 ```
+
+The chart is pushed to GHCR as an OCI artifact by
+[`.github/workflows/nilchela-chart-publish.yaml`](../../.github/workflows/nilchela-chart-publish.yaml)
+on every merge to `main` whose `Chart.yaml` version is not already in the
+registry, and a published version is immutable. GHCR creates the package
+**private** on first push — set its visibility to public in the package
+settings, or nobody outside the org can pull it.
 
 Run it with the release name `nilchela` and the resource names come out short:
 StatefulSet `nilchela`, PVCs `nilchela-tools` / `nilchela-cache` /
@@ -192,7 +207,7 @@ The whole surface:
 ```yaml
 image:
   repository: ghcr.io/infiniteprimates/nilchela
-  tag: "0.0.3"                # empty means .Chart.AppVersion
+  tag: "0.0.5"                # empty means .Chart.AppVersion
   pullPolicy: IfNotPresent
 
 mise:                          # rendered into the chart's mise.toml
