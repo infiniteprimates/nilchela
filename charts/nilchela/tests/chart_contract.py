@@ -739,6 +739,32 @@ def check_kube_floor(chart_dir: str, checker: Checker) -> None:
         )
 
 
+def check_readme_versions(chart_dir: str, checker: Checker) -> None:
+    """The versions the README states are the ones Chart.yaml declares.
+
+    The README is the only place outside Chart.yaml that states a version, and it
+    drifted once: it said 0.0.1 while Chart.yaml said 0.1.0, through a bump that
+    updated one and not the other. Read rather than trusted, so the next bump
+    cannot leave it behind.
+    """
+    with open(f"{chart_dir}/Chart.yaml", encoding="utf-8") as handle:
+        chart = yaml.safe_load(handle) or {}
+    with open(f"{chart_dir}/README.md", encoding="utf-8") as handle:
+        readme = handle.read()
+
+    stated = dict(re.findall(r"(\w+ version): `([^`]+)`", readme))
+    for label, declared in (
+        ("Chart version", chart.get("version")),
+        ("App version", chart.get("appVersion")),
+    ):
+        found = stated.get(label)
+        checker.check(
+            f"the README states the {label.lower()} Chart.yaml declares",
+            found == str(declared),
+            f"Chart.yaml {label.lower()}={declared!r} README {label.lower()}={found!r}",
+        )
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rendered", help="output of `helm template`")
@@ -781,6 +807,8 @@ def main(argv: list[str]) -> int:
         check_probes(load_manifests(args.probes_render), checker)
     print(f"kubernetes floor: {args.chart_dir}\n")
     check_kube_floor(args.chart_dir, checker)
+    print(f"stated versions: {args.chart_dir}\n")
+    check_readme_versions(args.chart_dir, checker)
     return checker.report()
 
 
