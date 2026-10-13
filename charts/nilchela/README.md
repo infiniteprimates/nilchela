@@ -6,7 +6,7 @@ single-replica StatefulSet with its volumes, its `mise.toml` ConfigMap, the
 ownership model the image expects, and a ClusterIP Service in front of the
 ZeroClaw gateway.
 
-- Chart version: `0.0.1` · App version: `0.0.5` (the image tag it deploys)
+- Chart version: `0.1.1` · App version: `0.0.5` (the image tag it deploys)
 - Requires Kubernetes `>= 1.31` (the render library's floor) and Helm 3.x
 
 Consume the published artifact — no clone, no `repo add`:
