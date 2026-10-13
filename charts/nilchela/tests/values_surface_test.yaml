@@ -731,3 +731,96 @@ tests:
       - equal:
           path: spec.template.spec.initContainers[1].args[0]
           value: install
+
+  # ---------------------------------------------------------------------------
+  # volumes.extra nested inside a chart volume -> prepare-mounts
+  #
+  # The kubelet creates a missing mount point as root:root, and it creates one per
+  # container -- so the directories under an extra mount path appear while the
+  # agent container is being set up, after every init container has exited, and
+  # `fix-ownership` (non-recursive, by design) is already past. On a fresh volume
+  # the agent then cannot write, and the daemon dies at boot creating its own data
+  # directory. The chart creates and chowns that chain itself, in an init container
+  # rendered only when an extra path is actually nested.
+  # ---------------------------------------------------------------------------
+  - it: renders no prepare-mounts when no extra path is nested
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 2
+
+  - it: renders no prepare-mounts for an extra mounted outside the chart's volumes
+    set:
+      volumes.extra.media:
+        type: persistentVolumeClaim
+        existingClaim: media
+        path: /media
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 2
+
+  - it: creates and chowns the parent chain of a nested extra path
+    set:
+      volumes.extra.agent-secrets:
+        type: projected
+        path: /zeroclaw-data/.zeroclaw/agents/testagent/workspace/secrets
+        sources:
+          - secret:
+              name: test-token
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 3
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: prepare-mounts
+      - equal:
+          path: spec.template.spec.initContainers[1].securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.template.spec.initContainers[1].args[0]
+          value: |-
+            set -eu
+            for dir in "/zeroclaw-data/.zeroclaw" "/zeroclaw-data/.zeroclaw/agents" "/zeroclaw-data/.zeroclaw/agents/testagent" "/zeroclaw-data/.zeroclaw/agents/testagent/workspace"; do
+              mkdir -p "$dir"
+              chown 65534:65534 "$dir"
+            done
+      # The mount point itself is the last path component, and it is covered by its
+      # own mount: chowning it would fail on a read-only source and mean nothing.
+      - notMatchRegex:
+          path: spec.template.spec.initContainers[1].args[0]
+          pattern: workspace/secrets
+      - equal:
+          path: spec.template.spec.initContainers[2].name
+          value: install-tools
+
+  - it: prepare-mounts carries none of the deployer's extra volumes
+    set:
+      volumes.extra.agent-secrets:
+        type: projected
+        path: /zeroclaw-data/.zeroclaw/agents/testagent/workspace/secrets
+        sources:
+          - secret:
+              name: test-token
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers[1].volumeMounts
+          count: 3
+      - equal:
+          path: spec.template.spec.initContainers[1].volumeMounts[0].name
+          value: cache
+      - notExists:
+          path: spec.template.spec.initContainers[1].volumeMounts[3]

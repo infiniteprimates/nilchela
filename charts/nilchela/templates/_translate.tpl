@@ -65,6 +65,49 @@
        extra volume may not be named one of them either. */ -}}
 {{- $chartPaths := list "/tools" "/cache" "/zeroclaw-data" "/config" -}}
 {{- $chartKeys := list "tools" "cache" "data" "config" -}}
+{{- /* Nested extra mounts: what the kubelet creates, and what it does not.
+
+       Every mount point the kubelet creates, it creates as root:root, and it
+       creates one per *container* — so the directories under an extra mount path
+       appear while the agent container is being set up, which is after every init
+       container has exited. `fix-ownership` is therefore already past, and its
+       chown is non-recursive by design: the durable volume is unbounded, and a
+       recursive walk on every start is a cost with no ceiling.
+
+       On a volume where the path already exists — the long-lived install — the
+       kubelet creates only the shadowed leaf, the mount covers it, and nothing
+       breaks. On a *fresh* volume it creates the whole chain, and the agent (uid
+       65534) cannot write into it: the daemon dies at boot creating its own data
+       directory, before the agent ever runs.
+
+       Collect what has to exist, and be the agent's, before `main` starts: every
+       ancestor of an extra mount path that lies inside one of the chart's own
+       writable volumes — excluding the mount point itself (its mount covers it)
+       and excluding anything at or below another extra's mount point (those
+       directories belong to the deployer's volume, not to the chart). */ -}}
+{{- $extraPaths := dict -}}
+{{- range $key, $spec := $extra -}}
+{{- $_ := set $extraPaths ($spec.path | default (printf "/%s" $key)) true -}}
+{{- end -}}
+{{- $prepare := dict -}}
+{{- range $key, $spec := $extra -}}
+{{- $mountPath := $spec.path | default (printf "/%s" $key) -}}
+{{- range $root := (list "/tools" "/cache" "/zeroclaw-data") -}}
+{{- if hasPrefix (printf "%s/" $root) $mountPath -}}
+{{- $parts := splitList "/" (trimPrefix (printf "%s/" $root) $mountPath) -}}
+{{- $acc := $root -}}
+{{- range $i, $part := $parts -}}
+{{- $acc = printf "%s/%s" $acc $part -}}
+{{- if lt $i (sub (len $parts) 1) -}}
+{{- if hasKey $extraPaths $acc -}}
+{{- break -}}
+{{- end -}}
+{{- $_ := set $prepare $acc true -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- with $sched }}
 defaultPodOptions:
   {{- toYaml . | nindent 2 }}
@@ -129,8 +172,31 @@ controllers:
           requests:
             cpu: 10m
             memory: 32Mi
-      install-tools:
+      {{- if $prepare }}
+      prepare-mounts:
         dependsOn: fix-ownership
+        image:
+          repository: {{ $repo }}
+          tag: {{ $tag | quote }}
+          pullPolicy: {{ $pull }}
+        command: ["sh", "-c"]
+        args:
+          - |-
+            set -eu
+            for dir in{{ range $dir, $_ := $prepare }} {{ $dir | quote }}{{ end }}; do
+              mkdir -p "$dir"
+              chown 65534:65534 "$dir"
+            done
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+      {{- end }}
+      install-tools:
+        dependsOn: {{ if $prepare }}prepare-mounts{{ else }}fix-ownership{{ end }}
         image:
           repository: {{ $repo }}
           tag: {{ $tag | quote }}
