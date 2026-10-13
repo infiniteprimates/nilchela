@@ -58,7 +58,7 @@ env:
 jobs:
   chart-pr:
     name: Chart PR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -93,6 +93,23 @@ jobs:
           helm template nilchela charts/nilchela --namespace nilchela
           --kube-version "${KUBERNETES_VERSION}"
           > "${RUNNER_TEMP}/rendered.yaml"
+
+      - name: Render the contract variants
+        # The contract test's two optional layers take *renders* as inputs -- it
+        # inspects what Helm produced and never renders. Both were documented and
+        # neither ran in CI, so the `mise.env` -> `[env]` mapping and the
+        # probes-without-Service shape were only checked by hand. Same kube-version
+        # as the primary render, so all three agree.
+        run: |
+          helm template nilchela charts/nilchela --namespace nilchela \
+            --kube-version "${KUBERNETES_VERSION}" \
+            --set mise.env.CARGO_HOME=/cache/cargo \
+            --set mise.env.GOCACHE=/cache/go-build \
+            > "${RUNNER_TEMP}/toolenv.yaml"
+          helm template nilchela charts/nilchela --namespace nilchela \
+            --kube-version "${KUBERNETES_VERSION}" \
+            --set gateway.service.enabled=false \
+            > "${RUNNER_TEMP}/probes.yaml"
 
       - name: Install kubeconform
         run: |
@@ -163,4 +180,6 @@ jobs:
           --project charts/nilchela/tests
           python3 charts/nilchela/tests/chart_contract.py
           "${RUNNER_TEMP}/rendered.yaml"
+          --toolenv-render "${RUNNER_TEMP}/toolenv.yaml"
+          --probes-render "${RUNNER_TEMP}/probes.yaml"
           --chart-dir charts/nilchela
