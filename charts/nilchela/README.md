@@ -102,8 +102,8 @@ What it costs — read this before you file a bug about it:
 
 ## What the defaults encode
 
-The image makes four promises. The chart exists mostly to keep them — plus one
-it has to keep on the image's behalf, because a volume mount breaks it:
+The image makes four promises. The chart exists mostly to keep them — plus two of
+its own, both consequences of mounting a volume:
 
 | Promise | Where it lives | Why |
 |---|---|---|
@@ -111,16 +111,18 @@ it has to keep on the image's behalf, because a volume mount breaks it:
 | The agent runs non-root | `_translate.tpl` → `main` (`runAsUser: 65534`) | the image's posture, preserved |
 | The agent cannot write `/tools` | `_translate.tpl` → `advancedMounts.main.{install-tools,main}` | the one mount needing per-container modes: RW for the installer, `readOnly: true` for the agent |
 | No `fsGroup` | nowhere — by omission | an fsGroup hands the agent's group write access to `/tools`; with a root-owned installer that is an escalation path into the toolchains the agent is about to execute |
+| A nested extra mount is writable by the agent | `_translate.tpl` → `prepare-mounts`, rendered only when an extra path is nested | the kubelet creates a missing mount point as `root:root`, and creates one per container — so the directories under an extra mount appear after every init container has exited and the non-recursive chown is already past. The chart creates and chowns that chain itself |
 | The gateway binds all interfaces | derived from `gateway.service.enabled` | the PVC at `/zeroclaw-data` shadows the image's baked `config.toml`, so the daemon otherwise falls back to `host = 127.0.0.1` — and the Service would front a port nothing outside the pod can dial |
 
-Note the column: three of those live in the translation, not in configuration.
+Note the column: four of those live in the translation, not in configuration.
 There is no value a user can set that moves the ownership split, because getting
 it wrong is not a preference — a single mount mode for both containers is the
 failure mode where each container gets its own empty volume and the product
 silently has no toolchains.
 
-The last row is not an image promise; it is the chart undoing an accident it
-causes. See [The Service, and the bind it needs](#the-service-and-the-bind-it-needs).
+The last two rows are not image promises; they are the chart undoing accidents it
+causes — a mount it makes, and the mount points the kubelet makes for it. See
+[The Service, and the bind it needs](#the-service-and-the-bind-it-needs).
 
 Because a pod-level `runAsNonRoot: true` combined with a container-level
 `runAsUser: 0` is a hard kubelet error, the ownership split is per-container —

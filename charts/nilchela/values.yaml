@@ -157,6 +157,23 @@ volumes:
     #         audience: rustfs
     #         expirationSeconds: 3600
     #         path: rustfs/token
+    #
+    # A path nested inside one of the chart's own volumes (/tools, /cache,
+    # /zeroclaw-data) needs its parent directories to exist, owned by the agent,
+    # before the agent container starts. The kubelet creates a missing mount point
+    # as root:root, and it creates one per container — so the directories under an
+    # extra mount appear while the agent container is being set up, after every
+    # init container has exited, and the non-recursive `fix-ownership` chown is
+    # already past. Where the path exists this is invisible; on a fresh volume the
+    # agent cannot write into it, and the daemon dies at boot creating its own data
+    # directory before the agent ever runs.
+    #
+    # The chart therefore renders a `prepare-mounts` init container whenever an
+    # extra path is nested: it creates those directories and chowns them to the
+    # agent, before `main` starts. Nothing to configure — it is the chart keeping
+    # its own promise that the agent can write what it mounts. A path that is not
+    # nested (say /media) needs none: its mount point sits in the container's own
+    # rootfs and the volume's own ownership applies.
 
 # Probes. Readiness and liveness ship ON; startup is off. They are what makes the
 # pod's Ready state mean anything — with every probe disabled the kubelet reports
