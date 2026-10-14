@@ -9,7 +9,7 @@ type: application
 # the image's own versioning, which also begins at v0.0.0. Pre-1.0, so a breaking
 # change to the values interface is a minor bump: 0.1.0 renamed `storage` to
 # `volumes.required` and added `volumes.extra`.
-version: 0.1.1
+version: 0.1.2
 
 # Application version — the nilchela IMAGE version this chart deploys by
 # default. An empty `image.tag` in values.yaml means this value;
