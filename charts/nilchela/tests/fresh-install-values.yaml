@@ -1,0 +1,35 @@
+# Fresh-install fixture — the values a first-time installer runs. Two layers
+# consume this one definition:
+#
+#   * `--fresh-install-render` in the contract test: the only render that declares
+#     a mount nested inside a chart volume, which is the shape that needs
+#     `prepare-mounts`;
+#   * the kind job, which installs the chart with these values on a cluster that
+#     has no storage provisioner.
+#
+# Three deliberate choices, all to keep the cluster test cheap:
+#   * every volume is emptyDir — kind provisions nothing, and there is no claim to
+#     retain or clean up;
+#   * `mise.tools` is left at the chart default (empty), so `install-tools` has no
+#     toolchain to fetch and the pod is up in seconds rather than minutes; which
+#     tools an agent needs has nothing to do with the mount-point question;
+#   * the extra mount is nested several directories deep, because nesting is the
+#     whole point — a mount directly under a volume root needs no preparation.
+#
+# The kind job creates `fresh-install-dummy` before installing; nothing reads it.
+volumes:
+  required:
+    tools: { type: emptyDir }
+    cache: { type: emptyDir }
+    data: { type: emptyDir }
+  extra:
+    agent-secrets:
+      type: projected
+      path: /zeroclaw-data/.zeroclaw/agents/freshtest/workspace/secrets
+      readOnly: true
+      defaultMode: "0444"
+      sources:
+        - secret:
+            name: fresh-install-dummy
+            items:
+              - { key: token, path: gh/token }
