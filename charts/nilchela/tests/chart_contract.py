@@ -531,6 +531,26 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
         f"appVersion={app_version!r} values image.tag={default_tag!r} rendered={rendered_image!r}",
     )
 
+    # -- the chart's own README states the chart version, and the package ships
+    # that README. Published versions are immutable, so a bump that leaves the
+    # README behind cannot be corrected after the fact — it takes another
+    # release. This pairing has slipped twice; assert it rather than remember it.
+    with open(f"{chart_dir}/Chart.yaml", encoding="utf-8") as handle:
+        chart_version = str((yaml.safe_load(handle) or {}).get("version"))
+    readme_version = None
+    with open(f"{chart_dir}/README.md", encoding="utf-8") as handle:
+        for line in handle.read().splitlines():
+            if line.startswith("- Chart version:"):
+                fields = line.split("`")
+                if len(fields) > 2:
+                    readme_version = fields[1]
+                break
+    checker.check(
+        "the chart README states the Chart.yaml version",
+        readme_version == chart_version,
+        f"Chart.yaml version={chart_version!r} README states {readme_version!r}",
+    )
+
 
 def mise_toml_from(configmaps: list[dict]) -> str:
     return next(
@@ -739,16 +759,154 @@ def check_kube_floor(chart_dir: str, checker: Checker) -> None:
         )
 
 
+def init_container_names(manifests: list[dict]) -> list[str]:
+    return [
+        container.get("name")
+        for statefulset in by_kind(manifests, "StatefulSet")
+        for container in (
+            ((statefulset.get("spec") or {}).get("template") or {}).get("spec") or {}
+        ).get("initContainers")
+        or []
+    ]
+
+
+def check_fresh_install(
+    manifests: list[dict], primary: list[dict], checker: Checker
+) -> None:
+    """The nested-mount layer, on the one render that declares a nested extra.
+
+    A mount path nested *inside* a chart volume is the shape the chart cannot
+    leave to the kubelet. The kubelet creates a missing mount point as root:root,
+    and creates it per container — so the directories under an extra mount appear
+    only after every init container has exited, by which time the non-recursive
+    chown is already past. The chart therefore creates that chain itself, in
+    `prepare-mounts`, and this layer holds it to two things: it must name every
+    ancestor of every nested path, and it must not mount a nested path — mounting
+    one would shadow the directory it is preparing.
+
+    It runs against a dedicated render because the primary render declares no
+    extra mount: there `prepare-mounts` is absent, so every assertion below would
+    pass for the wrong reason. The fixture behind this render is shared with the
+    kind job, which is what makes one definition exercise both layers.
+
+    Assumes a chart volume is a single path segment (`/tools`, `/cache`,
+    `/zeroclaw-data`, `/config`): the first segment is the volume root, which the
+    chart owns, and the last is the mount point itself, which the kubelet
+    creates. Everything between them is the chart's to make.
+    """
+
+    def ancestors_of(path: str) -> list[str]:
+        parts = [part for part in path.split("/") if part]
+        return ["/" + "/".join(parts[:depth]) for depth in range(2, len(parts))]
+
+    statefulsets = by_kind(manifests, "StatefulSet")
+    checker.check(
+        "the fresh-install render has exactly one StatefulSet",
+        len(statefulsets) == 1,
+        f"found {len(statefulsets)}",
+    )
+    if len(statefulsets) != 1:
+        return
+    spec = (
+        (statefulsets[0].get("spec") or {}).get("template") or {}
+    ).get("spec") or {}
+    main = next(
+        (c for c in spec.get("containers") or [] if c.get("name") == "main"), None
+    )
+    if main is None:
+        checker.check("the fresh-install render has a main container", False)
+        return
+
+    chart_paths = (TOOLS_PATH, CONFIG_PATH, CACHE_PATH, DATA_PATH)
+    nested = sorted(
+        mount.get("mountPath")
+        for mount in main.get("volumeMounts") or []
+        if isinstance(mount.get("mountPath"), str)
+        and any(
+            str(mount["mountPath"]).startswith(f"{path}/") for path in chart_paths
+        )
+    )
+    checker.check(
+        "the fixture declares a mount nested inside a chart volume",
+        bool(nested),
+        "tests/fresh-install-values.yaml must declare one — without it this layer "
+        "passes for the wrong reason",
+    )
+    if not nested:
+        return
+
+    prepare = next(
+        (
+            c
+            for c in spec.get("initContainers") or []
+            if c.get("name") == "prepare-mounts"
+        ),
+        None,
+    )
+    checker.check("a prepare-mounts init container is rendered", prepare is not None)
+    checker.check(
+        "the primary render, which declares no extra mount, renders no "
+        "prepare-mounts",
+        "prepare-mounts" not in init_container_names(primary),
+    )
+    if prepare is None:
+        return
+
+    script = " ".join(str(token) for token in prepare.get("command") or [])
+    script = f"{script} {' '.join(str(token) for token in prepare.get('args') or [])}"
+    for ancestor in sorted({a for path in nested for a in ancestors_of(path)}):
+        checker.check(
+            f"prepare-mounts creates {ancestor}",
+            ancestor in script,
+            f"the script does not name {ancestor}",
+        )
+    mounted = {mount.get("mountPath") for mount in prepare.get("volumeMounts") or []}
+    for path in nested:
+        checker.check(
+            f"prepare-mounts does not mount the nested path {path}",
+            path not in mounted,
+            "mounting a nested path here would shadow the directory being prepared",
+        )
+    checker.check(
+        "prepare-mounts runs as root, which the chown requires",
+        (prepare.get("securityContext") or {}).get("runAsUser") == 0,
+        f"securityContext={prepare.get('securityContext')!r}",
+    )
+    emptydirs = sorted(
+        volume.get("name") for volume in spec.get("volumes") or [] if "emptyDir" in volume
+    )
+    checker.check(
+        "the fixture backs its volumes with emptyDir, so the kind job needs no "
+        "storage provisioner",
+        bool(emptydirs),
+        f"emptyDir volumes: {emptydirs}",
+    )
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rendered", help="output of `helm template`")
+    # All three variant renders are required. A layer whose input is optional is a
+    # layer that silently stops running — which is what this file's own header
+    # records happening to the first two, and what would happen to the third if a
+    # workflow edit dropped its render step.
     parser.add_argument(
         "--toolenv-render",
+        required=True,
         help="a second render made with `mise.env` set, for the [env] mapping",
     )
     parser.add_argument(
         "--probes-render",
+        required=True,
         help="a third render made with a probe enabled and the Service disabled",
+    )
+    parser.add_argument(
+        "--fresh-install-render",
+        required=True,
+        help=(
+            "a fourth render of tests/fresh-install-values.yaml — the only input "
+            "that declares a mount nested inside a chart volume"
+        ),
     )
     parser.add_argument("--chart-dir", default="charts/nilchela")
     parser.add_argument("--release-name", default="nilchela")
@@ -772,13 +930,14 @@ def main(argv: list[str]) -> int:
     print("licence integrity: packaged artifact")
     check_packaged_licenses(repo_root, args.chart_dir, checker)
     print()
-    run_checks(load_manifests(args.rendered), args.chart_dir, checker)
-    if args.toolenv_render:
-        print(f"mise.env mapping: {args.toolenv_render}\n")
-        check_toolenv(load_manifests(args.toolenv_render), checker)
-    if args.probes_render:
-        print(f"probes: {args.probes_render}\n")
-        check_probes(load_manifests(args.probes_render), checker)
+    primary = load_manifests(args.rendered)
+    run_checks(primary, args.chart_dir, checker)
+    print(f"mise.env mapping: {args.toolenv_render}\n")
+    check_toolenv(load_manifests(args.toolenv_render), checker)
+    print(f"probes: {args.probes_render}\n")
+    check_probes(load_manifests(args.probes_render), checker)
+    print(f"fresh install: {args.fresh_install_render}\n")
+    check_fresh_install(load_manifests(args.fresh_install_render), primary, checker)
     print(f"kubernetes floor: {args.chart_dir}\n")
     check_kube_floor(args.chart_dir, checker)
     return checker.report()
