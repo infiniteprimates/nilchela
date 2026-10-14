@@ -1,0 +1,146 @@
+diff --git a/.github/workflows/nilchela-chart-pr.yaml b/.github/workflows/nilchela-chart-pr.yaml
+index 80d81f1..a4a3876 100644
+--- a/.github/workflows/nilchela-chart-pr.yaml
++++ b/.github/workflows/nilchela-chart-pr.yaml
+@@ -13,6 +13,7 @@
+ #                                     and the newest schemas available
+ #   3. helm unittest                  template logic in templates/_translate.tpl
+ #   4. tests/chart_contract.py        relational invariants of the rendered pod model
++#   5. kind job                       the fixture installed on a throwaway cluster
+ #
+ # 3 and 4 overlap in spirit, not in reach. helm-unittest asserts a path against a
+ # literal; the contract test asserts *relations* between two rendered locations
+@@ -21,11 +22,17 @@
+ # document embedded in a rendered ConfigMap, and drift between the rendered image
+ # tag and Chart.yaml's appVersion. Neither tool subsumes the other; keep both.
+ #
+-# Deliberately NOT here: `ct install` against a kind cluster. Two costs specific
+-# to *this* chart -- the image installs its toolchains at runtime over the network
+-# (slow and flaky per-PR, and it tests the network more than the chart), and kind
+-# ships no storage provisioner while the chart renders three retained PVCs.
+-# That belongs on a schedule or behind a label, not on every PR.
++# 5 asserts what none of 1-4 can: that a fresh install *boots*, and that the agent
++# can write the directory it lives in. The bug it guards is produced by the
++# kubelet, not by Helm -- the mount chain inside the data volume is created
++# root:root, so the agent's uid cannot write its own workspace -- and it was found
++# by hand on a real cluster, not by any render.
++#
++# Deliberately NOT here: `ct install` with the chart's *default* values. Both costs
++# it used to carry are answered by the fixture rather than by the chart: tools are
++# empty, so no toolchain is fetched at runtime, and every volume is emptyDir, so
++# kind needs no storage provisioner. The fixture is the instrument that made this
++# layer affordable; without it those two objections still hold.
+ 
+ name: Nilchela Chart PR
+ 
+@@ -95,11 +102,13 @@ jobs:
+           > "${RUNNER_TEMP}/rendered.yaml"
+ 
+       - name: Render the contract variants
+-        # The contract test's two optional layers take *renders* as inputs -- it
+-        # inspects what Helm produced and never renders. Both were documented and
+-        # neither ran in CI, so the `mise.env` -> `[env]` mapping and the
+-        # probes-without-Service shape were only checked by hand. Same kube-version
+-        # as the primary render, so all three agree.
++        # The contract test's three variant layers take *renders* as inputs -- it
++        # inspects what Helm produced and never renders. The first two were
++        # documented and neither ran in CI, so the `mise.env` -> `[env]` mapping
++        # and the probes-without-Service shape were only checked by hand. The
++        # fourth is what exercises the nested-mount chain at all: no other input
++        # declares a mount inside a chart volume. All four renders share the
++        # primary's kube-version, so they agree.
+         run: |
+           helm template nilchela charts/nilchela --namespace nilchela \
+             --kube-version "${KUBERNETES_VERSION}" \
+@@ -110,6 +119,11 @@ jobs:
+             --kube-version "${KUBERNETES_VERSION}" \
+             --set gateway.service.enabled=false \
+             > "${RUNNER_TEMP}/probes.yaml"
++          # Rendered from the chart's own fixture, tests/fresh-install-values.yaml.
++          helm template nilchela charts/nilchela --namespace nilchela \
++            --kube-version "${KUBERNETES_VERSION}" \
++            -f charts/nilchela/tests/fresh-install-values.yaml \
++            > "${RUNNER_TEMP}/fresh.yaml"
+ 
+       - name: Install kubeconform
+         run: |
+@@ -182,4 +196,79 @@ jobs:
+           "${RUNNER_TEMP}/rendered.yaml"
+           --toolenv-render "${RUNNER_TEMP}/toolenv.yaml"
+           --probes-render "${RUNNER_TEMP}/probes.yaml"
++          --fresh-install-render "${RUNNER_TEMP}/fresh.yaml"
+           --chart-dir charts/nilchela
++
++  chart-install:
++    name: Chart install (kind)
++    # Everything above inspects the *render*; this is the only layer that runs the
++    # chart. It uses the same fixture the contract test renders, so the two layers
++    # cannot drift: one definition, two consumers.
++    runs-on: ubuntu-26.04
++    timeout-minutes: 15
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v7
++
++      - name: Set up Helm
++        uses: azure/setup-helm@v5
++        with:
++          version: ${{ env.HELM_VERSION }}
++
++      - name: Add the bjw-s chart repository
++        run: >
++          helm repo add --force-update bjw-s
++          https://bjw-s-labs.github.io/helm-charts
++
++      - name: Resolve chart dependencies
++        run: helm dependency build charts/nilchela
++
++      - name: Create cluster
++        uses: helm/kind-action@v1.15.1
++        with:
++          cluster_name: nilchela
++
++      - name: Install the fixture
++        # The namespace and the Secret exist first: the fixture projects
++        # `fresh-install-dummy`, and a projected volume whose source is missing
++        # keeps the pod in ContainerCreating rather than failing visibly.
++        # --wait is the readiness assertion -- the release is not installed until
++        # the pod is Ready, and the pod is only Ready if the daemon boots.
++        run: |
++          set -euo pipefail
++          kubectl create namespace nilchela
++          kubectl --namespace nilchela create secret generic fresh-install-dummy \
++            --from-literal=token=unused
++          helm install nilchela charts/nilchela \
++            --namespace nilchela \
++            --values charts/nilchela/tests/fresh-install-values.yaml \
++            --wait --timeout 8m
++
++      - name: The agent can write its workspace
++        # The check that found the bug by hand. `kubectl exec` runs as the
++        # container's own uid (65534), which is the whole point: root can always
++        # write, so an exec as root would pass on the broken chart too. The
++        # credential mount is nested inside the data volume, and the kubelet
++        # creates that intermediate chain root:root unless prepare-mounts runs.
++        run: |
++          set -euo pipefail
++          pod=$(kubectl --namespace nilchela get pod \
++            -l app.kubernetes.io/controller=main \
++            -o jsonpath='{.items[0].metadata.name}')
++          kubectl --namespace nilchela exec "${pod}" --container main -- sh -euc '
++            w=/zeroclaw-data/.zeroclaw/agents/freshtest/workspace
++            test -r "$w/secrets/gh/token"
++            echo written > "$w/probe"
++            test "$(cat "$w/probe")" = written
++            echo "workspace writable by uid $(id -u)"
++          '
++
++      - name: Diagnostics
++        # A failed exec leaves nothing behind to read, and the pod's own logs are
++        # the only place a boot failure explains itself.
++        if: failure()
++        run: |
++          kubectl --namespace nilchela get pods -o wide
++          kubectl --namespace nilchela describe pods
++          kubectl --namespace nilchela logs --all-containers --prefix --tail=200 \
++            -l app.kubernetes.io/controller=main
