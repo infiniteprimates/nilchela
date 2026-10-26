@@ -89,10 +89,10 @@ Redistribution of the ZeroClaw base image
 
 Published nilchela images are built FROM:
 
-  ghcr.io/zeroclaw-labs/zeroclaw:v0.8.5-debian
+  ghcr.io/zeroclaw-labs/zeroclaw:v0.8.6-debian
 
 that is, the `debian` variant of https://github.com/zeroclaw-labs/zeroclaw at
-tag v0.8.5. The tag is parameterised by ARG ZEROCLAW_VERSION in the Dockerfile.
+tag v0.8.6. The tag is parameterised by ARG ZEROCLAW_VERSION in the Dockerfile.
 That image is redistributed as part of nilchela, which is why the ZeroClaw
 notice above is reproduced in full rather than merely linked.
 
