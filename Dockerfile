@@ -27,7 +27,7 @@
 # =============================================================================
 
 # Abstract the base image version away from this image's own version.
-ARG ZEROCLAW_VERSION=0.8.5
+ARG ZEROCLAW_VERSION=0.8.6
 FROM ghcr.io/zeroclaw-labs/zeroclaw:v${ZEROCLAW_VERSION}-debian
 
 # Re-declared inside the stage on purpose: an ARG set before FROM is not visible

@@ -20,7 +20,7 @@ Override the base or `mise` version via build args:
 ```bash
 docker build \
   -f Dockerfile \
-  --build-arg ZEROCLAW_VERSION=0.8.5 \
+  --build-arg ZEROCLAW_VERSION=0.8.6 \
   --build-arg MISE_VERSION=v2026.9.3 \
   -t nilchela:dev \
   .
