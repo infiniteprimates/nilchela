@@ -9,12 +9,12 @@ type: application
 # the image's own versioning, which also begins at v0.0.0. Pre-1.0, so a breaking
 # change to the values interface is a minor bump: 0.1.0 renamed `storage` to
 # `volumes.required` and added `volumes.extra`.
-version: 0.1.2
+version: 0.2.0
 
 # Application version — the nilchela IMAGE version this chart deploys by
 # default. An empty `image.tag` in values.yaml means this value;
 # tests/chart_contract.py fails the build if the two drift.
-appVersion: "0.0.5"
+appVersion: 0.1.0
 
 # The bjw-s `common` library requires Kubernetes >= 1.31 -- read off the
 # dependency's own Chart.yaml (`common` 5.2.1 declares `>=1.31.0-0`), not
