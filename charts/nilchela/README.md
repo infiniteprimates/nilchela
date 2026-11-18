@@ -575,15 +575,22 @@ and no credentials, which is quieter and worse than a crash loop. And the claim 
 it. Both are avoided by this order:
 
 1. `kubectl scale statefulset nilchela --replicas=0` — nothing is running against
-   the old file, and the claim is free. The chart does not render `replicas`, so a
-   later `helm upgrade` leaves the scale at zero; the scale-up in step 4 is
-   deliberate.
-2. Restore the file from a one-shot pod on the same claim:
+   the old file, and the claim is free. The scale stays at zero across step 3: the
+   chart renders `replicas:` with no value, so the API defaults it on create, and
+   every revision carries the same null — Helm's three-way merge sees no change
+   and emits no patch for that field, leaving an out-of-band scale alone. (Reasoned
+   from Helm's merge semantics, not rehearsed on a cluster. It is also why the
+   scale-up is its own step — if that empty `replicas:` is ever "tidied up" into
+   `replicas: 1`, this step stops being optional and starts being a race.)
+2. Restore the file from a one-shot pod on the same claim, in the release
+   namespace:
 
    ```yaml
    apiVersion: v1
    kind: Pod
-   metadata: { name: config-restore }
+   metadata:
+     name: config-restore
+     namespace: nilchela        # the release namespace; the claim is namespaced
    spec:
      restartPolicy: Never
      securityContext: { runAsUser: 65534, runAsGroup: 65534, runAsNonRoot: true }
@@ -599,10 +606,17 @@ it. Both are avoided by this order:
          persistentVolumeClaim: { claimName: nilchela-data }
    ```
 
-   It has to run as uid 65534: the file is owner-only and the volume is already
-   the agent's. If the backup is gone, the config is not recoverable from the
-   cluster — a version 4 file cannot be downgraded byte-for-byte, only restored
-   from that copy.
+   ```sh
+   kubectl -n nilchela delete pod config-restore --ignore-not-found
+   kubectl -n nilchela apply -f config-restore.yaml
+   kubectl -n nilchela logs -f config-restore     # exits 0 when the copy lands
+   ```
+
+   The delete comes first because a Pod is immutable: re-running the recipe
+   without it fails on the existing pod instead of copying again. It has to run as
+   uid 65534, since the file is owner-only and the volume is already the agent's.
+   If the backup is gone, the config is not recoverable from the cluster — a
+   version 4 file cannot be downgraded byte-for-byte, only restored from that copy.
 3. `helm upgrade … --set image.tag=<old> --set upgrade.configMigrate.enabled=false`
    — or `helm rollback` to the 0.2.1 revision, which has neither the container
    nor the flag. The switch matters on this chart version because the container
