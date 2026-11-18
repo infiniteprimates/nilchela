@@ -44,6 +44,12 @@
 {{- $probeStartOn := $probeStart.enabled | default false -}}
 {{- $probesOn := or $probeLiveOn (or $probeReadyOn $probeStartOn) -}}
 {{- $probePort := $probesCfg.port | default $svcPort -}}
+{{- /* Config schema migration. ZeroClaw rewrites its config file on a schema bump
+       (`zeroclaw config migrate`), and a deployment whose data volume already
+       holds a file from an older release loads it only in memory until that
+       rewrite happens. The init container below performs it before the daemon
+       starts — see values.yaml for why it is an init container and not a hook. */ -}}
+{{- $migrate := (($v.upgrade | default dict).configMigrate | default dict).enabled | default false -}}
 {{- /* The daemon must leave loopback for anything outside the container that has
        to reach it: the Service, and the kubelet's probes. Both probe the pod IP,
        so a probe against a loopback-bound daemon fails — and a liveness probe
@@ -172,9 +178,34 @@ controllers:
           requests:
             cpu: 10m
             memory: 32Mi
+      {{- if $migrate }}
+      config-migrate:
+        dependsOn: fix-ownership
+        image:
+          repository: {{ $repo }}
+          tag: {{ $tag | quote }}
+          pullPolicy: {{ $pull }}
+        # `command` overrides the image ENTRYPOINT rather than appending to it.
+        # The entrypoint is `mise exec -- zeroclaw`, and a schema rewrite needs no
+        # toolchain — running the binary directly keeps this container independent
+        # of whether install-tools has populated /tools yet.
+        command: ["/usr/local/bin/zeroclaw"]
+        args: ["config", "migrate"]
+        securityContext:
+          runAsUser: 65534
+          runAsGroup: 65534
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+      {{- end }}
       {{- if $prepare }}
       prepare-mounts:
-        dependsOn: fix-ownership
+        dependsOn: {{ if $migrate }}config-migrate{{ else }}fix-ownership{{ end }}
         image:
           repository: {{ $repo }}
           tag: {{ $tag | quote }}
@@ -196,7 +227,7 @@ controllers:
             memory: 32Mi
       {{- end }}
       install-tools:
-        dependsOn: {{ if $prepare }}prepare-mounts{{ else }}fix-ownership{{ end }}
+        dependsOn: {{ if $prepare }}prepare-mounts{{ else if $migrate }}config-migrate{{ else }}fix-ownership{{ end }}
         image:
           repository: {{ $repo }}
           tag: {{ $tag | quote }}

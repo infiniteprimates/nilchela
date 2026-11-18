@@ -466,6 +466,47 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
             and DATA_PATH in (ownership.get("args") or []),
         )
 
+    # -- the config-schema migration. `dependsOn` is the library's ordering input
+    # and is not rendered, so the list order is the only observable -- and it is
+    # the whole contract: migrate must run after ownership is settled (it writes
+    # as the agent) and before the toolchain install (which is what the daemon's
+    # own config load depends on, not this, but a chain is easier to reason about
+    # than two independent siblings).
+    migrate = container(pod_spec, "config-migrate", init=True)
+    checker.check("config-migrate initContainer exists", migrate is not None)
+    if migrate:
+        checker.check(
+            "config-migrate runs after fix-ownership and before install-tools",
+            init_names.index("fix-ownership")
+            < init_names.index("config-migrate")
+            < init_names.index("install-tools"),
+            f"order={init_names}",
+        )
+        checker.check(
+            "config-migrate runs as the agent, not as root",
+            (migrate.get("securityContext") or {}).get("runAsUser") == AGENT_UID,
+            f"securityContext={migrate.get('securityContext')}",
+        )
+        # The image ENTRYPOINT is `mise exec -- zeroclaw`. `command` replaces it,
+        # so the migration neither needs nor waits on the toolchain install.
+        checker.check(
+            "config-migrate invokes the binary directly, not the mise entrypoint",
+            (migrate.get("command") or [None])[0] == "/usr/local/bin/zeroclaw"
+            and (migrate.get("args") or [])[:2] == ["config", "migrate"],
+            f"command={migrate.get('command')!r} args={migrate.get('args')!r}",
+        )
+        # Without the data mount the container would rewrite a path nobody reads
+        # and exit 0 -- a no-op that reports success, which is the failure mode
+        # this check exists to rule out.
+        checker.check(
+            "config-migrate can reach the config it rewrites",
+            any(
+                mount.get("name") == "data" and mount.get("readOnly") is not True
+                for mount in migrate.get("volumeMounts") or []
+            ),
+            f"volumeMounts={migrate.get('volumeMounts')}",
+        )
+
     # -- /config is a ConfigMap holding the mise.toml key, mounted read-only.
     config_mount = None
     for candidate in (main or {}).get("volumeMounts") or []:

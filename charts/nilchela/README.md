@@ -6,7 +6,7 @@ single-replica StatefulSet with its volumes, its `mise.toml` ConfigMap, the
 ownership model the image expects, and a ClusterIP Service in front of the
 ZeroClaw gateway.
 
-- Chart version: `0.2.1` · App version: `0.1.1` (the image tag it deploys)
+- Chart version: `0.2.2` · App version: `0.1.2` (the image tag it deploys)
 - Requires Kubernetes `>= 1.31` (the render library's floor) and Helm 3.x
 
 Consume the published artifact — no clone, no `repo add`:
@@ -209,7 +209,7 @@ The whole surface:
 ```yaml
 image:
   repository: ghcr.io/infiniteprimates/nilchela
-  tag: "0.1.1"                # empty means .Chart.AppVersion
+  tag: "0.1.2"                # empty means .Chart.AppVersion
   pullPolicy: IfNotPresent
 
 mise:                          # rendered into the chart's mise.toml
@@ -217,6 +217,10 @@ mise:                          # rendered into the chart's mise.toml
   env: {}                      # per-tool cache variables, see Configuration
 
 env: {}                        # the container's own env, verbatim
+
+upgrade:
+  configMigrate:
+    enabled: true              # run `zeroclaw config migrate` before the daemon
 
 resources:
   requests: { cpu: 100m, memory: 512Mi }
@@ -519,6 +523,64 @@ the network, so a per-PR install is slow, flaky, and tests the network more than
 the chart; and kind ships no storage provisioner while the chart renders three
 retained PVCs that would never bind. That belongs on a schedule or behind a
 label, not on every PR.
+
+---
+
+## Upgrading across a ZeroClaw release
+
+Most releases need nothing from you: change nothing and the chart deploys the new
+image on the same values. A release that bumps the **config schema** is the
+exception, and ZeroClaw v0.9.0 is one — it moves the config to schema version 4
+and the release notes ask the operator to run `zeroclaw config migrate` once.
+
+Left to hand that step is a quiet failure. Until the rewrite happens the daemon
+does load the old file, but it migrates it in memory only, so `config set`,
+`config init`, `config patch` and `models set` all refuse — and nothing on the
+pod says so unless you happen to try one.
+
+So the chart performs it. `upgrade.configMigrate.enabled` (default `true`)
+renders a `config-migrate` init container that runs `zeroclaw config migrate`
+against the data volume:
+
+- **After `fix-ownership`, before `install-tools`.** The rewrite is the agent's,
+  so it runs as the agent (uid 65534) once the volume has been handed over; it
+  sorts first among the non-root steps so a config that cannot be migrated fails
+  in seconds rather than after a toolchain install.
+- **Invoking the binary directly**, not through the image's `mise exec` entrypoint
+  — a schema rewrite needs no toolchain, so it must not wait on one.
+- **A no-op where there is nothing to do.** A fresh volume has no
+  `config.toml` yet, and a volume already at the current schema reports "already
+  at current schema version"; both exit 0. The recurring cost is one container
+  start per pod.
+
+An **init container rather than a Helm `pre-upgrade` hook**, because a hook runs
+while the outgoing pod's daemon is still up and holding its own copy of the
+config — it can save over the file you just migrated. An init container runs when
+nothing else owns the volume, and it also covers a plain rollout, a node drain or
+a pod restart, none of which a Helm hook sees.
+
+**Read the backup before you delete it.** The first rewrite of a version 3 file
+keeps the original as `config.toml.v3.backup` next to it on the data volume:
+owner-only, written once, and readable by an older binary. It also still holds
+every retired key, **including plaintext secrets** such as a Nevis
+`client_secret`. Delete it once you no longer need to downgrade, and treat the
+volume as secret-bearing in the meantime.
+
+Two situations where this switch matters:
+
+- **A config that migrate refuses.** Migrate validates the result before it
+  replaces the file, so a config that can no longer validate fails the container,
+  and therefore the pod, with the reason in the init container's log
+  (`kubectl logs <pod> -c config-migrate`). That is deliberate — better than a
+  daemon that starts and cannot be edited — but set
+  `upgrade.configMigrate.enabled=false` if you need the pod up while you fix the
+  file.
+- **A config outside `/zeroclaw-data/.zeroclaw`.** The init container does not
+  inherit the agent container's `env:`, so a `ZEROCLAW_CONFIG_DIR` override set
+  there would leave the migration rewriting the default path instead. This
+  surface has no way to pass that variable to an init container, so in that case
+  set `upgrade.configMigrate.enabled=false` and run `zeroclaw config migrate`
+  against the real path once, by hand.
 
 ---
 
