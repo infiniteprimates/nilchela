@@ -561,10 +561,18 @@ a pod restart, none of which a Helm hook sees.
 
 **Read the backup before you delete it.** The first rewrite of a version 3 file
 keeps the original as `config.toml.backup` next to it on the data volume
-(`/zeroclaw-data/.zeroclaw/config.toml.backup`): owner-only, written once, and
-readable by an older binary. It also still holds every retired key, **including
-plaintext secrets** such as a Nevis `client_secret`. Delete it once you no longer
-need to downgrade, and treat the volume as secret-bearing in the meantime.
+(`/zeroclaw-data/.zeroclaw/config.toml.backup`): owner-only, written once, a
+byte-for-byte copy of the file as it stood, and readable by an older binary. It
+also still holds every retired key, so it holds whatever the config held — which
+under the default `secrets.encrypt = true` is ciphertext, not plaintext. The
+migration never decrypts to write it, so the copy inherits the original's
+encryption exactly. The limit is the key, not the copy: the master key lives at
+`.zeroclaw/.secret_key`, in the same directory on the same volume, so that
+encryption protects a backup that leaves the volume from someone who does not
+have the volume — it does not protect against someone who already does. A
+deployment that sets `secrets.encrypt = false` gets a plaintext backup. Delete it
+once you no longer need to downgrade, and treat the volume as secret-bearing
+either way.
 
 **To go back to an older image, the file moves first, and the pod is out of the
 way while it does.** An 0.8.x daemon does not reject a version 4 file: its
