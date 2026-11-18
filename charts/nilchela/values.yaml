@@ -230,6 +230,42 @@ probes:
     enabled: false
     # spec: { failureThreshold: 30, periodSeconds: 10 }
 
+# Upgrade-time work, performed before the agent container starts.
+#
+# ZeroClaw's config is a versioned file. A schema bump rewrites it in place, and
+# until that rewrite happens the daemon loads the old file and migrates it in
+# memory only — so `config set`, `config init`, `config patch` and `models set`
+# refuse until something writes the file back. `zeroclaw config migrate` is that
+# write, and it is the only step a release note asks an operator to perform.
+upgrade:
+  configMigrate:
+    # Run `zeroclaw config migrate` in an init container, before `main`.
+    #
+    # Why an init container rather than a Helm pre-upgrade hook: a hook would
+    # rewrite config.toml while the outgoing pod's daemon is still running, and
+    # that daemon holds its own copy and can save over the file it just
+    # migrated. An init container runs when nothing else owns the volume — and it
+    # also covers a pod restart or a rollout, neither of which a Helm hook sees.
+    #
+    # It is a no-op where there is nothing to do: a fresh volume, and a volume
+    # already at the current schema, both exit 0. The recurring cost is one
+    # container start per pod.
+    #
+    # Set `false` for a config that migrate refuses. Migrate validates the result
+    # strictly before it replaces the file, so a config that can no longer
+    # validate fails this container, and therefore the pod, with the reason in
+    # the init container's log. That is deliberate — it is better than a daemon
+    # that starts and then cannot be edited — but it must not be able to strand a
+    # deployment, hence the switch.
+    #
+    # Also set `false` when deploying an OLDER image than the data volume's
+    # schema — after a `helm rollback`, for instance — but the switch is not the
+    # remedy by itself. An 0.8.x daemon does not reject a version 4 file; it
+    # starts on defaults with the whole config discarded, so `config.toml.backup`
+    # has to be restored first. The README's rollback recipe has the order, and
+    # the order matters because the data claim is ReadWriteOnce.
+    enabled: true
+
 gateway:
   # `zeroclaw daemon` supervises an HTTP gateway (dashboard, REST API, /health)
   # on 42617, so the pod does take inbound traffic — this Service fronts it.

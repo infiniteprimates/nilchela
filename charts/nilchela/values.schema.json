@@ -104,6 +104,20 @@
         "tolerations": { "type": "array" },
         "affinity": { "type": "object" }
       }
+    },
+    "upgrade": {
+      "type": "object",
+      "description": "Work performed between render and the agent starting. `configMigrate` runs `zeroclaw config migrate` in an init container, so a data volume carrying a config from an older schema is rewritten before the daemon reads it.",
+      "additionalProperties": false,
+      "properties": {
+        "configMigrate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        }
+      }
     }
   },
   "definitions": {

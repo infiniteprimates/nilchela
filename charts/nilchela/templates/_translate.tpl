@@ -44,6 +44,21 @@
 {{- $probeStartOn := $probeStart.enabled | default false -}}
 {{- $probesOn := or $probeLiveOn (or $probeReadyOn $probeStartOn) -}}
 {{- $probePort := $probesCfg.port | default $svcPort -}}
+{{- /* Config schema migration. ZeroClaw rewrites its config file on a schema bump
+       (`zeroclaw config migrate`), and a deployment whose data volume already
+       holds a file from an older release loads it only in memory until that
+       rewrite happens. The init container below performs it before the daemon
+       starts — see values.yaml for why it is an init container and not a hook.
+
+       Default ON when the key is merely absent, not only when values.yaml
+       supplied it: `helm upgrade --reuse-values` reuses the previous release's
+       values and does not apply this chart's defaults, so `upgrade` can be
+       missing from the coalesced map entirely — and NOTES.txt recommends that
+       flag. Missing defaults to true here through `hasKey`, the same idiom the
+       Service uses above. `default true` cannot express it: sprig's `empty`
+       treats `false` as empty, which would silently re-enable an explicit off. */ -}}
+{{- $migrateCfg := (($v.upgrade | default dict).configMigrate | default dict) -}}
+{{- $migrate := ternary $migrateCfg.enabled true (hasKey $migrateCfg "enabled") -}}
 {{- /* The daemon must leave loopback for anything outside the container that has
        to reach it: the Service, and the kubelet's probes. Both probe the pod IP,
        so a probe against a loopback-bound daemon fails — and a liveness probe
@@ -158,6 +173,11 @@ controllers:
           {{- end }}
         {{- end }}
     initContainers:
+      {{- /* The chain's tail, carried forward as each optional container renders.
+             One variable, so an inserted container updates one line instead of
+             hand-editing every downstream `dependsOn` — and so the two edges below
+             cannot drift from each other. */ -}}
+      {{- $prev := "fix-ownership" }}
       fix-ownership:
         image:
           repository: {{ $repo }}
@@ -172,9 +192,35 @@ controllers:
           requests:
             cpu: 10m
             memory: 32Mi
+      {{- if $migrate }}
+      config-migrate:
+        dependsOn: {{ $prev }}
+        image:
+          repository: {{ $repo }}
+          tag: {{ $tag | quote }}
+          pullPolicy: {{ $pull }}
+        # `command` overrides the image ENTRYPOINT rather than appending to it.
+        # The entrypoint is `mise exec -- zeroclaw`, and a schema rewrite needs no
+        # toolchain — running the binary directly keeps this container independent
+        # of whether install-tools has populated /tools yet.
+        command: ["/usr/local/bin/zeroclaw"]
+        args: ["config", "migrate"]
+        securityContext:
+          runAsUser: 65534
+          runAsGroup: 65534
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+      {{- $prev = "config-migrate" }}
+      {{- end }}
       {{- if $prepare }}
       prepare-mounts:
-        dependsOn: fix-ownership
+        dependsOn: {{ $prev }}
         image:
           repository: {{ $repo }}
           tag: {{ $tag | quote }}
@@ -194,9 +240,10 @@ controllers:
           requests:
             cpu: 10m
             memory: 32Mi
+      {{- $prev = "prepare-mounts" }}
       {{- end }}
       install-tools:
-        dependsOn: {{ if $prepare }}prepare-mounts{{ else }}fix-ownership{{ end }}
+        dependsOn: {{ $prev }}
         image:
           repository: {{ $repo }}
           tag: {{ $tag | quote }}

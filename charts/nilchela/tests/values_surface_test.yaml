@@ -29,7 +29,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/infiniteprimates/nilchela:0.1.1
+          value: ghcr.io/infiniteprimates/nilchela:0.1.2
 
   - it: lets image.tag override the chart appVersion
     set:
@@ -505,7 +505,7 @@ tests:
             mountPath: /tools
             readOnly: true
       - contains:
-          path: spec.template.spec.initContainers[1].volumeMounts
+          path: spec.template.spec.initContainers[2].volumeMounts
           content:
             name: tools
             mountPath: /tools
@@ -598,6 +598,10 @@ tests:
           path: spec.template.spec.initContainers[1].volumeMounts
           content:
             name: media
+      - notContains:
+          path: spec.template.spec.initContainers[2].volumeMounts
+          content:
+            name: media
 
   # The one bare entry this surface refuses: an entry that names no `type` defaults
   # to a claim, and a claim with neither a size nor an adopted claim renders
@@ -688,12 +692,12 @@ tests:
       value: StatefulSet
     asserts:
       - contains:
-          path: spec.template.spec.initContainers[1].volumeMounts
+          path: spec.template.spec.initContainers[2].volumeMounts
           content:
             name: tools
             mountPath: /tools
 
-  - it: orders fix-ownership before install-tools
+  - it: orders fix-ownership, config-migrate, then install-tools
     documentSelector:
       path: kind
       value: StatefulSet
@@ -703,6 +707,9 @@ tests:
           value: fix-ownership
       - equal:
           path: spec.template.spec.initContainers[1].name
+          value: config-migrate
+      - equal:
+          path: spec.template.spec.initContainers[2].name
           value: install-tools
 
   - it: runs the installer as root and chowns the write targets
@@ -726,10 +733,10 @@ tests:
       value: StatefulSet
     asserts:
       - equal:
-          path: spec.template.spec.initContainers[1].command[0]
+          path: spec.template.spec.initContainers[2].command[0]
           value: mise
       - equal:
-          path: spec.template.spec.initContainers[1].args[0]
+          path: spec.template.spec.initContainers[2].args[0]
           value: install
 
   # ---------------------------------------------------------------------------
@@ -750,7 +757,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.template.spec.initContainers
-          count: 2
+          count: 3
 
   - it: renders no prepare-mounts for an extra mounted outside the chart's volumes
     set:
@@ -764,10 +771,172 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.template.spec.initContainers
-          count: 2
+          count: 3
 
   - it: creates and chowns the parent chain of a nested extra path
     set:
+      volumes.extra.agent-secrets:
+        type: projected
+        path: /zeroclaw-data/.zeroclaw/agents/testagent/workspace/secrets
+        sources:
+          - secret:
+              name: test-token
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 4
+      - equal:
+          path: spec.template.spec.initContainers[2].name
+          value: prepare-mounts
+      - equal:
+          path: spec.template.spec.initContainers[2].securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.template.spec.initContainers[2].args[0]
+          value: |-
+            set -eu
+            for dir in "/zeroclaw-data/.zeroclaw" "/zeroclaw-data/.zeroclaw/agents" "/zeroclaw-data/.zeroclaw/agents/testagent" "/zeroclaw-data/.zeroclaw/agents/testagent/workspace"; do
+              mkdir -p "$dir"
+              chown 65534:65534 "$dir"
+            done
+      # The mount point itself is the last path component, and it is covered by its
+      # own mount: chowning it would fail on a read-only source and mean nothing.
+      - notMatchRegex:
+          path: spec.template.spec.initContainers[2].args[0]
+          pattern: workspace/secrets
+      - equal:
+          path: spec.template.spec.initContainers[3].name
+          value: install-tools
+
+  - it: prepare-mounts carries none of the deployer's extra volumes
+    set:
+      volumes.extra.agent-secrets:
+        type: projected
+        path: /zeroclaw-data/.zeroclaw/agents/testagent/workspace/secrets
+        sources:
+          - secret:
+              name: test-token
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers[2].volumeMounts
+          count: 3
+      - equal:
+          path: spec.template.spec.initContainers[2].volumeMounts[0].name
+          value: cache
+      - notExists:
+          path: spec.template.spec.initContainers[2].volumeMounts[3]
+
+  # ---------------------------------------------------------------------------
+  # upgrade.configMigrate -> the config-schema init container
+  # ---------------------------------------------------------------------------
+  # ZeroClaw's config is a versioned file, and a release that bumps the schema
+  # expects an operator to run `config migrate`. Left to the operator that is a
+  # manual step on the data volume, and a missed step fails quietly: the daemon
+  # loads the old file, migrates it in memory, and refuses `config set` until
+  # something writes it back. The chart performs that write itself.
+  - it: runs config migrate in an init container before the agent starts
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: config-migrate
+      - equal:
+          path: spec.template.spec.initContainers[1].command[0]
+          value: /usr/local/bin/zeroclaw
+      - equal:
+          path: spec.template.spec.initContainers[1].args[0]
+          value: config
+      - equal:
+          path: spec.template.spec.initContainers[1].args[1]
+          value: migrate
+
+  # It runs as the agent, not as root. The file it rewrites is the agent's, and
+  # fix-ownership has already handed the volume over by the time it runs, so the
+  # write needs no privilege it does not have.
+  - it: runs config migrate as the agent, not as root
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[1].securityContext.runAsUser
+          value: 65534
+      - equal:
+          path: spec.template.spec.initContainers[1].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.initContainers[1].securityContext.allowPrivilegeEscalation
+          value: false
+
+  # `dependsOn` is the library's ordering input, not a rendered field: the pod
+  # field templates consume it into a Kahn topological sort and omit it from the
+  # container. So the ORDER below is the assertion -- a wrong or dangling edge
+  # either reorders the list or fails the render outright.
+  - it: puts the migration before the toolchain install
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[1].command[0]
+          value: /usr/local/bin/zeroclaw
+      - equal:
+          path: spec.template.spec.initContainers[2].command[0]
+          value: mise
+
+  - it: renders no config-migrate when upgrade.configMigrate.enabled is false
+    set:
+      upgrade.configMigrate.enabled: false
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 2
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: install-tools
+
+  # `helm upgrade --reuse-values` reuses the previous release's values and does
+  # not apply the new chart's defaults, so `upgrade` can be entirely absent from
+  # the coalesced map. Default-on must survive that: it is the values path that
+  # reproduces the quiet failure this container exists to prevent — the reused
+  # release still picks up the new appVersion through `image.tag: ""`, so the new
+  # schema-4 image ships with no migration.
+  #
+  # A regression test, not a description: against `... .enabled | default false`
+  # this fails with `Expected 3, Actual 2` and `initContainers[1].name:
+  # install-tools`. Note `default true` cannot be the fix — sprig's `empty` treats
+  # `false` as empty, which would silently re-enable an explicit off.
+  - it: renders config-migrate when the upgrade key is absent
+    set:
+      upgrade: null
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 3
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: config-migrate
+
+  # The chain has to close up behind a disabled container: install-tools would
+  # otherwise depend on an init container that is never rendered, which the
+  # library rejects by name ("References non-existent init container").
+  - it: keeps the init chain contiguous with the migration off and a nested extra path
+    set:
+      upgrade.configMigrate.enabled: false
       volumes.extra.agent-secrets:
         type: projected
         path: /zeroclaw-data/.zeroclaw/agents/testagent/workspace/secrets
@@ -785,42 +954,5 @@ tests:
           path: spec.template.spec.initContainers[1].name
           value: prepare-mounts
       - equal:
-          path: spec.template.spec.initContainers[1].securityContext.runAsUser
-          value: 0
-      - equal:
-          path: spec.template.spec.initContainers[1].args[0]
-          value: |-
-            set -eu
-            for dir in "/zeroclaw-data/.zeroclaw" "/zeroclaw-data/.zeroclaw/agents" "/zeroclaw-data/.zeroclaw/agents/testagent" "/zeroclaw-data/.zeroclaw/agents/testagent/workspace"; do
-              mkdir -p "$dir"
-              chown 65534:65534 "$dir"
-            done
-      # The mount point itself is the last path component, and it is covered by its
-      # own mount: chowning it would fail on a read-only source and mean nothing.
-      - notMatchRegex:
-          path: spec.template.spec.initContainers[1].args[0]
-          pattern: workspace/secrets
-      - equal:
           path: spec.template.spec.initContainers[2].name
           value: install-tools
-
-  - it: prepare-mounts carries none of the deployer's extra volumes
-    set:
-      volumes.extra.agent-secrets:
-        type: projected
-        path: /zeroclaw-data/.zeroclaw/agents/testagent/workspace/secrets
-        sources:
-          - secret:
-              name: test-token
-    documentSelector:
-      path: kind
-      value: StatefulSet
-    asserts:
-      - lengthEqual:
-          path: spec.template.spec.initContainers[1].volumeMounts
-          count: 3
-      - equal:
-          path: spec.template.spec.initContainers[1].volumeMounts[0].name
-          value: cache
-      - notExists:
-          path: spec.template.spec.initContainers[1].volumeMounts[3]

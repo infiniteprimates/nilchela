@@ -466,6 +466,47 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
             and DATA_PATH in (ownership.get("args") or []),
         )
 
+    # -- the config-schema migration. `dependsOn` is the library's ordering input
+    # and is not rendered, so the list order is the only observable -- and it is
+    # the whole contract: migrate must run after ownership is settled (it writes
+    # as the agent) and before the toolchain install (which is what the daemon's
+    # own config load depends on, not this, but a chain is easier to reason about
+    # than two independent siblings).
+    migrate = container(pod_spec, "config-migrate", init=True)
+    checker.check("config-migrate initContainer exists", migrate is not None)
+    if migrate:
+        checker.check(
+            "config-migrate runs after fix-ownership and before install-tools",
+            init_names.index("fix-ownership")
+            < init_names.index("config-migrate")
+            < init_names.index("install-tools"),
+            f"order={init_names}",
+        )
+        checker.check(
+            "config-migrate runs as the agent, not as root",
+            (migrate.get("securityContext") or {}).get("runAsUser") == AGENT_UID,
+            f"securityContext={migrate.get('securityContext')}",
+        )
+        # The image ENTRYPOINT is `mise exec -- zeroclaw`. `command` replaces it,
+        # so the migration neither needs nor waits on the toolchain install.
+        checker.check(
+            "config-migrate invokes the binary directly, not the mise entrypoint",
+            (migrate.get("command") or [None])[0] == "/usr/local/bin/zeroclaw"
+            and (migrate.get("args") or [])[:2] == ["config", "migrate"],
+            f"command={migrate.get('command')!r} args={migrate.get('args')!r}",
+        )
+        # Without the data mount the container would rewrite a path nobody reads
+        # and exit 0 -- a no-op that reports success, which is the failure mode
+        # this check exists to rule out.
+        checker.check(
+            "config-migrate can reach the config it rewrites",
+            any(
+                mount.get("name") == "data" and mount.get("readOnly") is not True
+                for mount in migrate.get("volumeMounts") or []
+            ),
+            f"volumeMounts={migrate.get('volumeMounts')}",
+        )
+
     # -- /config is a ConfigMap holding the mise.toml key, mounted read-only.
     config_mount = None
     for candidate in (main or {}).get("volumeMounts") or []:
@@ -872,6 +913,35 @@ def check_fresh_install(
         (prepare.get("securityContext") or {}).get("runAsUser") == 0,
         f"securityContext={prepare.get('securityContext')!r}",
     )
+
+    # -- the deployer's extras are routed to the agent container alone, and the
+    # migration container is in the same pod. Nothing else asserts that it stays
+    # out: a refactor of `volumes.extra` from `advancedMounts.main.main` to
+    # `globalMounts` would hand a deployer's credential to every init container
+    # and the rest of this suite would stay green. Checked here rather than in the
+    # primary render because this is the only render that declares an extra — in
+    # the primary it would pass for want of anything to find.
+    migrate_init = container(spec, "config-migrate", init=True)
+    if migrate_init is not None:
+        extra_names = {
+            volume.get("name")
+            for volume in spec.get("volumes") or []
+            if volume.get("name") not in ("tools", "cache", "data", "config")
+        }
+        checker.check(
+            "the fixture declares an extra volume for that check to keep out",
+            bool(extra_names),
+            "an empty set would make the assertion below vacuous",
+        )
+        carried = {
+            mount.get("name") for mount in migrate_init.get("volumeMounts") or []
+        }
+        checker.check(
+            "config-migrate carries none of the deployer's extra volumes",
+            not (carried & extra_names),
+            f"extras to keep out: {sorted(extra_names)}; config-migrate carries "
+            f"{sorted(carried)}",
+        )
     emptydirs = sorted(
         volume.get("name") for volume in spec.get("volumes") or [] if "emptyDir" in volume
     )
