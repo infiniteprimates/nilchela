@@ -259,9 +259,11 @@ upgrade:
     # deployment, hence the switch.
     #
     # Also set `false` when deploying an OLDER image than the data volume's
-    # schema: an 0.8.x binary refuses a version 4 file, so the container fails
-    # before the daemon gets a chance to. Restore `config.toml.v3.backup` over
-    # `config.toml` at the same time; the README's rollback recipe has the order.
+    # schema — after a `helm rollback`, for instance — but the switch is not the
+    # remedy by itself. An 0.8.x daemon does not reject a version 4 file; it
+    # starts on defaults with the whole config discarded, so `config.toml.backup`
+    # has to be restored first. The README's rollback recipe has the order, and
+    # the order matters because the data claim is ReadWriteOnce.
     enabled: true
 
 gateway:

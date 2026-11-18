@@ -560,24 +560,54 @@ nothing else owns the volume, and it also covers a plain rollout, a node drain o
 a pod restart, none of which a Helm hook sees.
 
 **Read the backup before you delete it.** The first rewrite of a version 3 file
-keeps the original as `config.toml.v3.backup` next to it on the data volume:
-owner-only, written once, and readable by an older binary. It also still holds
-every retired key, **including plaintext secrets** such as a Nevis
-`client_secret`. Delete it once you no longer need to downgrade, and treat the
-volume as secret-bearing in the meantime.
+keeps the original as `config.toml.backup` next to it on the data volume
+(`/zeroclaw-data/.zeroclaw/config.toml.backup`): owner-only, written once, and
+readable by an older binary. It also still holds every retired key, **including
+plaintext secrets** such as a Nevis `client_secret`. Delete it once you no longer
+need to downgrade, and treat the volume as secret-bearing in the meantime.
 
-**To go back to an older image**, the file has to go back with it — a 0.8.x binary
-refuses a version 4 file outright (`config schema_version 4 is newer than this
-binary supports (3)`), and so does `config migrate`, which would leave the pod in
-`Init:Error`. In order:
+**To go back to an older image, the file moves first, and the pod is out of the
+way while it does.** An 0.8.x daemon does not reject a version 4 file: its
+resilient loader catches the version bail and starts on `Config::default()` with
+the whole-config degradation sentinel set — a daemon with no agents, no channels
+and no credentials, which is quieter and worse than a crash loop. And the claim is
+`ReadWriteOnce`, so a second pod cannot mount it while the StatefulSet pod holds
+it. Both are avoided by this order:
 
-1. Turn the container off in the same invocation if you are staying on this
-   chart version: `helm upgrade … --set image.tag=<old>
-   --set upgrade.configMigrate.enabled=false`. (A `helm rollback` to the 0.2.1
-   revision needs nothing — that revision has no such container.)
-2. Roll the release back to the older image.
-3. From a debug pod on the same volume, copy `config.toml.v3.backup` over
-   `config.toml`, then restart the pod.
+1. `kubectl scale statefulset nilchela --replicas=0` — nothing is running against
+   the old file, and the claim is free. The chart does not render `replicas`, so a
+   later `helm upgrade` leaves the scale at zero; the scale-up in step 4 is
+   deliberate.
+2. Restore the file from a one-shot pod on the same claim:
+
+   ```yaml
+   apiVersion: v1
+   kind: Pod
+   metadata: { name: config-restore }
+   spec:
+     restartPolicy: Never
+     securityContext: { runAsUser: 65534, runAsGroup: 65534, runAsNonRoot: true }
+     containers:
+       - name: restore
+         image: ghcr.io/infiniteprimates/nilchela:0.1.2
+         command: ["cp", "-p",
+                   "/zeroclaw-data/.zeroclaw/config.toml.backup",
+                   "/zeroclaw-data/.zeroclaw/config.toml"]
+         volumeMounts: [{ name: data, mountPath: /zeroclaw-data }]
+     volumes:
+       - name: data
+         persistentVolumeClaim: { claimName: nilchela-data }
+   ```
+
+   It has to run as uid 65534: the file is owner-only and the volume is already
+   the agent's. If the backup is gone, the config is not recoverable from the
+   cluster — a version 4 file cannot be downgraded byte-for-byte, only restored
+   from that copy.
+3. `helm upgrade … --set image.tag=<old> --set upgrade.configMigrate.enabled=false`
+   — or `helm rollback` to the 0.2.1 revision, which has neither the container
+   nor the flag. The switch matters on this chart version because the container
+   would otherwise re-migrate the restored v3 file back to v4 on start.
+4. `kubectl scale statefulset nilchela --replicas=1`.
 
 Downgrading an *unmigrated* data volume is the quiet case: `config migrate` has
 existed since at least 0.8.7, where it is a no-op at schema 3, so pinning an older
@@ -592,16 +622,17 @@ Three situations where this switch matters:
   daemon that starts and cannot be edited — but set
   `upgrade.configMigrate.enabled=false` if you need the pod up while you fix the
   file.
-- **A downgrade.** See the rollback above: the file and the image move together.
+- **A downgrade.** See the rollback above: the file and the image move together,
+  and the switch is what stops the file being migrated straight back.
 - **A config outside `/zeroclaw-data/.zeroclaw`.** Three routes reach that state
   and the init container sees none of them: `env.ZEROCLAW_CONFIG_DIR` on the agent
   container, `mise.env` (it lands in `mise.toml`'s `[env]`, which `mise exec`
   applies to the daemon — and the init container bypasses `mise` entirely), or a
-  `HOME` override if the binary derives its default from it. The migration would
-  then rewrite the default path while the daemon reads another. This surface has
-  no way to pass any of them to an init container, so in that case set
-  `upgrade.configMigrate.enabled=false` and run `zeroclaw config migrate` against
-  the real path once, by hand.
+  `HOME` override, which is the one the base image actually relies on
+  (`ENV HOME=/zeroclaw-data`). The migration would then rewrite the default path
+  while the daemon reads another. This surface has no way to pass any of them to
+  an init container, so in that case set `upgrade.configMigrate.enabled=false` and
+  run `zeroclaw config migrate` against the real path once, by hand.
 
 ---
 
