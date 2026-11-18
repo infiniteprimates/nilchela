@@ -566,7 +566,24 @@ every retired key, **including plaintext secrets** such as a Nevis
 `client_secret`. Delete it once you no longer need to downgrade, and treat the
 volume as secret-bearing in the meantime.
 
-Two situations where this switch matters:
+**To go back to an older image**, the file has to go back with it — a 0.8.x binary
+refuses a version 4 file outright (`config schema_version 4 is newer than this
+binary supports (3)`), and so does `config migrate`, which would leave the pod in
+`Init:Error`. In order:
+
+1. Turn the container off in the same invocation if you are staying on this
+   chart version: `helm upgrade … --set image.tag=<old>
+   --set upgrade.configMigrate.enabled=false`. (A `helm rollback` to the 0.2.1
+   revision needs nothing — that revision has no such container.)
+2. Roll the release back to the older image.
+3. From a debug pod on the same volume, copy `config.toml.v3.backup` over
+   `config.toml`, then restart the pod.
+
+Downgrading an *unmigrated* data volume is the quiet case: `config migrate` has
+existed since at least 0.8.7, where it is a no-op at schema 3, so pinning an older
+tag before the migration is harmless.
+
+Three situations where this switch matters:
 
 - **A config that migrate refuses.** Migrate validates the result before it
   replaces the file, so a config that can no longer validate fails the container,
@@ -575,12 +592,16 @@ Two situations where this switch matters:
   daemon that starts and cannot be edited — but set
   `upgrade.configMigrate.enabled=false` if you need the pod up while you fix the
   file.
-- **A config outside `/zeroclaw-data/.zeroclaw`.** The init container does not
-  inherit the agent container's `env:`, so a `ZEROCLAW_CONFIG_DIR` override set
-  there would leave the migration rewriting the default path instead. This
-  surface has no way to pass that variable to an init container, so in that case
-  set `upgrade.configMigrate.enabled=false` and run `zeroclaw config migrate`
-  against the real path once, by hand.
+- **A downgrade.** See the rollback above: the file and the image move together.
+- **A config outside `/zeroclaw-data/.zeroclaw`.** Three routes reach that state
+  and the init container sees none of them: `env.ZEROCLAW_CONFIG_DIR` on the agent
+  container, `mise.env` (it lands in `mise.toml`'s `[env]`, which `mise exec`
+  applies to the daemon — and the init container bypasses `mise` entirely), or a
+  `HOME` override if the binary derives its default from it. The migration would
+  then rewrite the default path while the daemon reads another. This surface has
+  no way to pass any of them to an init container, so in that case set
+  `upgrade.configMigrate.enabled=false` and run `zeroclaw config migrate` against
+  the real path once, by hand.
 
 ---
 

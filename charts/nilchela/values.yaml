@@ -257,6 +257,11 @@ upgrade:
     # the init container's log. That is deliberate — it is better than a daemon
     # that starts and then cannot be edited — but it must not be able to strand a
     # deployment, hence the switch.
+    #
+    # Also set `false` when deploying an OLDER image than the data volume's
+    # schema: an 0.8.x binary refuses a version 4 file, so the container fails
+    # before the daemon gets a chance to. Restore `config.toml.v3.backup` over
+    # `config.toml` at the same time; the README's rollback recipe has the order.
     enabled: true
 
 gateway:

@@ -913,6 +913,35 @@ def check_fresh_install(
         (prepare.get("securityContext") or {}).get("runAsUser") == 0,
         f"securityContext={prepare.get('securityContext')!r}",
     )
+
+    # -- the deployer's extras are routed to the agent container alone, and the
+    # migration container is in the same pod. Nothing else asserts that it stays
+    # out: a refactor of `volumes.extra` from `advancedMounts.main.main` to
+    # `globalMounts` would hand a deployer's credential to every init container
+    # and the rest of this suite would stay green. Checked here rather than in the
+    # primary render because this is the only render that declares an extra — in
+    # the primary it would pass for want of anything to find.
+    migrate_init = container(spec, "config-migrate", init=True)
+    if migrate_init is not None:
+        extra_names = {
+            volume.get("name")
+            for volume in spec.get("volumes") or []
+            if volume.get("name") not in ("tools", "cache", "data", "config")
+        }
+        checker.check(
+            "the fixture declares an extra volume for that check to keep out",
+            bool(extra_names),
+            "an empty set would make the assertion below vacuous",
+        )
+        carried = {
+            mount.get("name") for mount in migrate_init.get("volumeMounts") or []
+        }
+        checker.check(
+            "config-migrate carries none of the deployer's extra volumes",
+            not (carried & extra_names),
+            f"extras to keep out: {sorted(extra_names)}; config-migrate carries "
+            f"{sorted(carried)}",
+        )
     emptydirs = sorted(
         volume.get("name") for volume in spec.get("volumes") or [] if "emptyDir" in volume
     )

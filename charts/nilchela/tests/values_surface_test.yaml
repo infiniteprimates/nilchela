@@ -906,6 +906,31 @@ tests:
           path: spec.template.spec.initContainers[1].name
           value: install-tools
 
+  # `helm upgrade --reuse-values` reuses the previous release's values and does
+  # not apply the new chart's defaults, so `upgrade` can be entirely absent from
+  # the coalesced map. Default-on must survive that: it is the values path that
+  # reproduces the quiet failure this container exists to prevent — the reused
+  # release still picks up the new appVersion through `image.tag: ""`, so the new
+  # schema-4 image ships with no migration.
+  #
+  # A regression test, not a description: against `... .enabled | default false`
+  # this fails with `Expected 3, Actual 2` and `initContainers[1].name:
+  # install-tools`. Note `default true` cannot be the fix — sprig's `empty` treats
+  # `false` as empty, which would silently re-enable an explicit off.
+  - it: renders config-migrate when the upgrade key is absent
+    set:
+      upgrade: null
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 3
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: config-migrate
+
   # The chain has to close up behind a disabled container: install-tools would
   # otherwise depend on an init container that is never rendered, which the
   # library rejects by name ("References non-existent init container").
