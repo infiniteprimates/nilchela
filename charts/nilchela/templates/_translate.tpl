@@ -25,6 +25,34 @@
 {{- $extra := $volumes.extra | default dict -}}
 {{- $tools := ($v.mise | default dict).tools | default dict -}}
 {{- $miseEnv := ($v.mise | default dict).env | default dict -}}
+{{- /* Default ON when the key is merely absent, the same `hasKey` idiom as
+       upgrade.configMigrate: `helm upgrade --reuse-values` does not apply this
+       chart's defaults, so the key can be missing from the coalesced map.
+       `default` cannot be used here — sprig's `empty` treats false as empty, so
+       `| default true` would silently re-enable an explicit off. */ -}}
+{{- $pruneCfg := $v.mise | default dict -}}
+{{- $pruneOn := true -}}
+{{- if hasKey $pruneCfg "prune" -}}{{- $pruneOn = $pruneCfg.prune -}}{{- end -}}
+{{- /* Tool names for the prune, sorted: Go template ranges a map in key order,
+       so the rendered command is stable and diffable between releases. */ -}}
+{{- $toolNames := list -}}
+{{- range $k, $_ := $tools -}}{{- $toolNames = append $toolNames $k -}}{{- end -}}
+{{- /* The installer's script. One script rather than one mise subcommand,
+       because mise has no command that both installs and prunes, and the two are
+       one operation: prune decides what is unused from the config files mise has
+       TRACKED, so a prune that ran before the install would see no tracked
+       config and delete every toolchain on the volume.
+
+       `--yes` because prune asks per version, and an init container has no TTY;
+       `--tools <names>` scopes it to the tools this chart declares, so an agent's
+       own ad-hoc toolchain in the shared MISE_DATA_DIR is not swept up.
+
+       The prune cannot fail the container: stale versions cost disk, a failed
+       init container costs the service. A failure prints one warning per start. */ -}}
+{{- $installScript := list "set -eu" "mise install" -}}
+{{- if and $pruneOn (gt (len $toolNames) 0) -}}
+{{- $installScript = append $installScript (printf "mise --yes prune --tools %s || echo 'nilchela: mise prune failed; superseded tool versions left in /tools' >&2" (join " " $toolNames)) -}}
+{{- end -}}
 {{- $sched := $v.scheduling | default dict -}}
 {{- $res := $v.resources | default dict -}}
 {{- $repo := $image.repository | default "ghcr.io/infiniteprimates/nilchela" -}}
@@ -248,8 +276,10 @@ controllers:
           repository: {{ $repo }}
           tag: {{ $tag | quote }}
           pullPolicy: {{ $pull }}
-        command: ["mise"]
-        args: ["install"]
+        command: ["sh", "-c"]
+        args:
+          - |-
+{{ join "\n" $installScript | indent 12 }}
         securityContext:
           runAsUser: 0
           runAsGroup: 0

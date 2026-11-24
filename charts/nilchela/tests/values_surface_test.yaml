@@ -727,17 +727,78 @@ tests:
           path: spec.template.spec.initContainers[0].args[0]
           value: 65534:65534
 
-  - it: installs toolchains with mise
+  # The installer is one shell script, not a bare `mise install`: install and
+  # prune are one operation and mise has no command that does both. With
+  # `mise.tools` empty there is nothing to prune — and a bare `mise prune` would
+  # target everything installed under /tools, including what the agent fetched
+  # for itself.
+  - it: installs toolchains with mise, and prunes nothing when no tool is pinned
     documentSelector:
       path: kind
       value: StatefulSet
     asserts:
       - equal:
-          path: spec.template.spec.initContainers[2].command[0]
-          value: mise
+          path: spec.template.spec.initContainers[2].command
+          value: [sh, -c]
       - equal:
           path: spec.template.spec.initContainers[2].args[0]
-          value: install
+          value: |-
+            set -eu
+            mise install
+
+  # Order inside the script is the contract: `mise prune` decides what is unused
+  # from the config files mise has tracked, so a prune that ran before the
+  # install would see no tracked config and delete the whole toolchain set. Tool
+  # names are sorted (Go template ranges a map in key order), so the same values
+  # always render the same bytes.
+  - it: prunes superseded versions of the declared tools after installing them
+    set:
+      mise.tools:
+        rust:
+          version: 1.98.0
+          profile: default
+        go: 1.27.1
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[2].args[0]
+          value: |-
+            set -eu
+            mise install
+            mise --yes prune --tools go rust || echo 'nilchela: mise prune failed; superseded tool versions left in /tools' >&2
+
+  # A failed prune must not keep the pod down: stale versions cost disk, a failed
+  # init container costs the service. `--yes` is part of the same contract — an
+  # init container has no TTY, and an unflagged prune stops to ask per version.
+  - it: keeps the pod bootable when the prune fails
+    set:
+      mise.tools.go: 1.27.1
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[2].args[0]
+          pattern: '(?m)^mise --yes prune --tools go \|\| echo '
+      - notMatchRegex:
+          path: spec.template.spec.initContainers[2].args[0]
+          pattern: '(?m)^mise prune '
+
+  - it: renders no prune when mise.prune is false
+    set:
+      mise.tools.go: 1.27.1
+      mise.prune: false
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[2].args[0]
+          value: |-
+            set -eu
+            mise install
 
   # ---------------------------------------------------------------------------
   # volumes.extra nested inside a chart volume -> prepare-mounts
@@ -889,8 +950,8 @@ tests:
           path: spec.template.spec.initContainers[1].command[0]
           value: /usr/local/bin/zeroclaw
       - equal:
-          path: spec.template.spec.initContainers[2].command[0]
-          value: mise
+          path: spec.template.spec.initContainers[2].name
+          value: install-tools
 
   - it: renders no config-migrate when upgrade.configMigrate.enabled is false
     set:

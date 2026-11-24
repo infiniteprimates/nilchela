@@ -31,6 +31,10 @@
           "type": "object",
           "description": "mise [env] table: toolchain runtime environment (cache redirection, dist mirrors), applied by the image's `mise exec` entrypoint.",
           "additionalProperties": { "type": ["string", "number", "boolean"] }
+        },
+        "prune": {
+          "type": "boolean",
+          "description": "Delete superseded versions of the declared tools after installing them (default true). Scoped to `tools`; runs in the installer's init container and never fails the pod."
         }
       }
     },

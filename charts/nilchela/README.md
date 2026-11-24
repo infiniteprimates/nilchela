@@ -6,7 +6,7 @@ single-replica StatefulSet with its volumes, its `mise.toml` ConfigMap, the
 ownership model the image expects, and a ClusterIP Service in front of the
 ZeroClaw gateway.
 
-- Chart version: `0.2.2` · App version: `0.1.2` (the image tag it deploys)
+- Chart version: `0.2.3` · App version: `0.1.2` (the image tag it deploys)
 - Requires Kubernetes `>= 1.31` (the render library's floor) and Helm 3.x
 
 Consume the published artifact — no clone, no `repo add`:
@@ -108,6 +108,7 @@ its own, both consequences of mounting a volume:
 | Promise | Where it lives | Why |
 |---|---|---|
 | The installer runs as root | `_translate.tpl` → `install-tools` (`runAsUser: 0`) | `/tools` is root-owned; that is what lets the agent mount it read-only |
+| Superseded tool versions do not accumulate | `_translate.tpl` → `install-tools`, one script: `mise install`, then `mise prune --tools …` | the tools volume is retained across releases and mounted read-only into the agent, so nothing in the pod can reclaim a version a pin bump orphaned. Scoped to the declared tools, so an agent's own toolchains are not swept up |
 | The agent runs non-root | `_translate.tpl` → `main` (`runAsUser: 65534`) | the image's posture, preserved |
 | The agent cannot write `/tools` | `_translate.tpl` → `advancedMounts.main.{install-tools,main}` | the one mount needing per-container modes: RW for the installer, `readOnly: true` for the agent |
 | No `fsGroup` | nowhere — by omission | an fsGroup hands the agent's group write access to `/tools`; with a root-owned installer that is an escalation path into the toolchains the agent is about to execute |
@@ -202,6 +203,44 @@ Do not restate the image's own mise bootstrap variables in `mise.env`
 before `mise.toml` exists; restating them here desynchronises the paths it
 already installed into.
 
+### Pruning superseded versions
+
+`mise install` only ever adds. When you bump a pin, the version it replaces stays
+on the tools volume — which is retained across `helm uninstall`, and mounted
+read-only into the agent, so nothing inside the pod can reclaim it. The installer
+init container therefore runs `mise prune` straight after `mise install`, in the
+same container and the same shell script:
+
+```text
+set -eu
+mise install
+mise --yes prune --tools go rust || echo 'nilchela: mise prune failed; …' >&2
+```
+
+Three properties of that line are deliberate:
+
+- **After the install, never before.** `mise prune` decides what is unused from
+  the config files mise has *tracked*. Run first, against a volume with no tracked
+  config yet, it would delete every toolchain it can see.
+- **Scoped to `mise.tools`.** The agent installs into the same `MISE_DATA_DIR`
+  (`/tools`), so a bare `mise prune` would sweep toolchains it fetched for its own
+  projects. Only the tools this chart declares are named. A *version of a declared
+  tool* is still fair game — prune treats this config as the only authority — so an
+  agent keeping its own pin of a chart tool should either be moved into
+  `mise.tools` or `mise.prune: false`.
+- **It cannot fail the pod.** Stale versions cost disk; a failed init container
+  costs the service. A prune that errors prints one warning and leaves everything
+  in place, and `--yes` is what makes it unattended — without it, `mise prune`
+  stops to confirm each version and an init container has no TTY.
+
+Set `mise.prune: false` to leave the volume alone; versions then accumulate as
+they did before `0.2.3`. `mise ls --prunable` inside the pod shows what the next
+install would remove.
+
+One gap is deliberate: a tool you remove from `mise.tools` *entirely* is not
+pruned, because its name is no longer in the command. Drop it by hand — `mise
+uninstall <tool>` as root against the tools volume — before it goes stale.
+
 ### Overriding the rest
 
 The whole surface:
@@ -215,6 +254,7 @@ image:
 mise:                          # rendered into the chart's mise.toml
   tools: {}                    # pin exactly, no ranges
   env: {}                      # per-tool cache variables, see Configuration
+  prune: true                  # delete superseded versions of the pinned tools
 
 env: {}                        # the container's own env, verbatim
 

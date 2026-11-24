@@ -405,9 +405,11 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
             (installer.get("securityContext") or {}).get("runAsUser") == 0,
         )
         checker.check(
-            "install-tools runs `mise install`",
-            (installer.get("command") or [None])[0] == "mise"
-            and "install" in (installer.get("args") or []),
+            "install-tools runs `mise install` from a fail-fast script",
+            (installer.get("command") or [])[:2] == ["sh", "-c"]
+            and "".join(installer.get("args") or []).splitlines()[:1] == ["set -eu"]
+            and "mise install" in "".join(installer.get("args") or []),
+            f"command={installer.get('command')!r} args={installer.get('args')!r}",
         )
         # This is the load-bearing translation assumption: the library resolves
         # `advancedMounts.main.<initContainer-key>`, so an initContainer can be
