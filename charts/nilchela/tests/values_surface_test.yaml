@@ -727,17 +727,64 @@ tests:
           path: spec.template.spec.initContainers[0].args[0]
           value: 65534:65534
 
-  - it: installs toolchains with mise
+  # The installer is one shell script, not a bare `mise install`: install and
+  # prune are one operation and mise has no command that does both.
+  #
+  # It runs with `mise.tools` empty too — declaring no tools means the volume
+  # should hold none, so an empty table prunes every toolchain rather than nothing.
+  # Guessing at intent here is how the chart would stop describing state.
+  - it: installs then prunes, even when no tool is pinned
     documentSelector:
       path: kind
       value: StatefulSet
     asserts:
       - equal:
-          path: spec.template.spec.initContainers[2].command[0]
-          value: mise
+          path: spec.template.spec.initContainers[2].command
+          value: [sh, -c]
       - equal:
           path: spec.template.spec.initContainers[2].args[0]
-          value: install
+          value: |-
+            set -eu
+            mise install
+            mise --yes prune --tools
+
+  # Order inside the script is the contract: `mise prune` decides what is unused
+  # from the config files mise has tracked, so a prune that ran before the
+  # install would see no tracked config and delete the whole toolchain set.
+  #
+  # The prune carries no tool names either, and that is the contract too: /tools
+  # is the chart's alone (the agent mounts it read-only), so an unscoped
+  # tools-prune is exactly "make the volume match the config". Two different pin
+  # sets asserting the same bytes is what proves no name leaks into the command.
+  #
+  # It is also unguarded. A chart is declarative, so a prune that cannot converge
+  # the volume must fail the init container: a `|| echo` turns a broken prune into
+  # a volume that fills up over releases with nobody watching, which is the worse
+  # failure of the two. `--yes` is part of the same contract — an init container
+  # has no TTY, and an unflagged prune stops to ask per version.
+  - it: pins never change the command, and the prune is never guarded
+    set:
+      mise.tools:
+        rust:
+          version: 1.98.0
+          profile: default
+        go: 1.27.1
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[2].args[0]
+          value: |-
+            set -eu
+            mise install
+            mise --yes prune --tools
+      - notMatchRegex:
+          path: spec.template.spec.initContainers[2].args[0]
+          pattern: '\|\|'
+      - notMatchRegex:
+          path: spec.template.spec.initContainers[2].args[0]
+          pattern: 'go|rust'
 
   # ---------------------------------------------------------------------------
   # volumes.extra nested inside a chart volume -> prepare-mounts
@@ -889,8 +936,8 @@ tests:
           path: spec.template.spec.initContainers[1].command[0]
           value: /usr/local/bin/zeroclaw
       - equal:
-          path: spec.template.spec.initContainers[2].command[0]
-          value: mise
+          path: spec.template.spec.initContainers[2].name
+          value: install-tools
 
   - it: renders no config-migrate when upgrade.configMigrate.enabled is false
     set:

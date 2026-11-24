@@ -11,8 +11,9 @@
 #   * every volume is emptyDir — kind provisions nothing, and there is no claim to
 #     retain or clean up;
 #   * `mise.tools` is left at the chart default (empty), so `install-tools` has no
-#     toolchain to fetch and the pod is up in seconds rather than minutes; which
-#     tools an agent needs has nothing to do with the mount-point question;
+#     toolchain to fetch and nothing to prune (the volume is fresh), and the pod is
+#     up in seconds rather than minutes; which tools an agent needs has nothing to
+#     do with the mount-point question;
 #   * the extra mount is nested several directories deep, because nesting is the
 #     whole point — a mount directly under a volume root needs no preparation.
 #

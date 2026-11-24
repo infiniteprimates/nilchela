@@ -6,7 +6,7 @@ single-replica StatefulSet with its volumes, its `mise.toml` ConfigMap, the
 ownership model the image expects, and a ClusterIP Service in front of the
 ZeroClaw gateway.
 
-- Chart version: `0.2.2` · App version: `0.1.2` (the image tag it deploys)
+- Chart version: `0.2.3` · App version: `0.1.2` (the image tag it deploys)
 - Requires Kubernetes `>= 1.31` (the render library's floor) and Helm 3.x
 
 Consume the published artifact — no clone, no `repo add`:
@@ -108,6 +108,7 @@ its own, both consequences of mounting a volume:
 | Promise | Where it lives | Why |
 |---|---|---|
 | The installer runs as root | `_translate.tpl` → `install-tools` (`runAsUser: 0`) | `/tools` is root-owned; that is what lets the agent mount it read-only |
+| Superseded tool versions do not accumulate | `_translate.tpl` → `install-tools`, one script: `mise install`, then `mise --yes prune --tools` | the tools volume is retained across releases and mounted read-only into the agent, so nothing in the pod can reclaim a version a pin bump orphaned — or a tool dropped from `tools` entirely. The prune is unscoped because the volume is the chart's alone; and it fails the rollout rather than warning |
 | The agent runs non-root | `_translate.tpl` → `main` (`runAsUser: 65534`) | the image's posture, preserved |
 | The agent cannot write `/tools` | `_translate.tpl` → `advancedMounts.main.{install-tools,main}` | the one mount needing per-container modes: RW for the installer, `readOnly: true` for the agent |
 | No `fsGroup` | nowhere — by omission | an fsGroup hands the agent's group write access to `/tools`; with a root-owned installer that is an escalation path into the toolchains the agent is about to execute |
@@ -202,6 +203,47 @@ Do not restate the image's own mise bootstrap variables in `mise.env`
 before `mise.toml` exists; restating them here desynchronises the paths it
 already installed into.
 
+### Pruning superseded versions
+
+`mise install` only ever adds. When you bump a pin, the version it replaces stays
+on the tools volume — which is retained across `helm uninstall`, and mounted
+read-only into the agent, so nothing inside the pod can reclaim it. The installer
+init container therefore runs `mise prune` straight after `mise install`, in the
+same container and the same shell script:
+
+```text
+set -eu
+mise install
+mise --yes prune --tools
+```
+
+Three properties of that line are deliberate:
+
+- **After the install, never before.** `mise prune` decides what is unused from
+  the config files mise has *tracked*. Run first, against a volume with no tracked
+  config yet, it would delete every toolchain it can see.
+- **Unscoped, deliberately.** `/tools` is the chart's, not the agent's: the agent
+  mounts it read-only, so this init container is the only writer, and it writes
+  only what this config says. Everything on the volume is therefore the chart's to
+  delete — which is what reclaims a tool you dropped from `tools` entirely, not
+  just a version you bumped. `--tools` is still passed, because without it prune
+  also forgets the *tracked config links*, including the one that keeps your
+  declared versions alive for the next prune.
+- **It fails the rollout.** Stale versions cost disk; a prune that quietly does
+  nothing costs disk *silently*, and the volume fills up over releases with nobody
+  watching. `set -eu` means a failed prune fails the init container, so the bad
+  state is visible at deploy time. `--yes` is what makes the prune unattended —
+  without it, `mise prune` stops to confirm each version and an init container has
+  no TTY.
+
+There is no mute switch. A chart is declarative: a version that leaves `tools`
+leaves the volume. `mise ls --prunable` inside the pod shows what the next install
+will remove.
+
+The prune runs even against an empty `tools` table. Declaring no tools means the
+volume should hold none; a missing pin is a state to converge on, not a reason for
+the chart to guess, and getting the toolchains back is an edit to `tools`.
+
 ### Overriding the rest
 
 The whole surface:
@@ -213,7 +255,7 @@ image:
   pullPolicy: IfNotPresent
 
 mise:                          # rendered into the chart's mise.toml
-  tools: {}                    # pin exactly, no ranges
+  tools: {}                    # pin exactly, no ranges; pruning is automatic
   env: {}                      # per-tool cache variables, see Configuration
 
 env: {}                        # the container's own env, verbatim

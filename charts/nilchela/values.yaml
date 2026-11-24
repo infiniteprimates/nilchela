@@ -67,6 +67,29 @@ mise:
     # UV_CACHE_DIR: /cache/uv           # Python — uv cache
     # PIP_CACHE_DIR: /cache/pip         # Python — pip cache
 
+  # `mise prune` runs immediately after the install, in the same init container,
+  # and is not switchable off. A chart is declarative: if a version leaves
+  # `tools`, it leaves the volume.
+  #
+  # `mise prune` deletes installed versions of a tool that no tracked config
+  # selects — for a pod whose only config is this one, that means the versions a
+  # previous pin left behind when you bumped `tools`, and the toolchains of a tool
+  # you removed from `tools` entirely. Nothing else can reclaim them: the tools
+  # volume is retained across releases, and the agent mounts it read-only.
+  #
+  # The prune is unscoped on purpose — it is not limited to the tool names above.
+  # /tools is the chart's, not the agent's: only this container writes to it, and
+  # only from this config, so everything on it is the chart's to delete.
+  #
+  # It runs even when `tools` is empty: declaring no tools means the volume should
+  # hold none. A missing pin is a state to converge on, not a reason to guess —
+  # and getting the toolchains back is an edit to this file.
+  #
+  # A prune that fails fails the init container, and therefore the rollout: a
+  # warning-only failure is a volume that fills up over releases with nobody
+  # watching. If a prune is genuinely wrong for your deployment, the fix belongs
+  # in `tools`, not in a mute switch.
+
 # Extra container environment, verbatim. `ZEROCLAW_`-prefixed keys set the
 # daemon's own config in schema-mirror form (ZEROCLAW_gateway__host). The bind
 # the Service needs is derived from gateway.service, not set here — see below.

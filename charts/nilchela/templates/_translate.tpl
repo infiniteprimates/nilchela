@@ -25,6 +25,28 @@
 {{- $extra := $volumes.extra | default dict -}}
 {{- $tools := ($v.mise | default dict).tools | default dict -}}
 {{- $miseEnv := ($v.mise | default dict).env | default dict -}}
+{{- /* The installer's script. One script rather than one mise subcommand,
+       because mise has no command that both installs and prunes, and the two are
+       one operation: prune decides what is unused from the config files mise has
+       TRACKED, so a prune that ran before the install would see no tracked
+       config and delete every toolchain on the volume.
+
+       `--yes` because prune asks per version, and an init container has no TTY.
+
+       No positional tool filter: /tools belongs to the chart, not to the agent —
+       the agent mounts it read-only, so every toolchain on it was installed by
+       this container from this config. A bare tools-prune is therefore exactly
+       the declarative statement, and it also reclaims a tool that was dropped
+       from `mise.tools` altogether.
+
+       It runs unconditionally, including when `mise.tools` is empty: declaring no
+       tools means the volume should hold none, and getting them back is an edit
+       to this file. Guessing otherwise is how a chart stops describing state.
+
+       `--tools` still matters: without it, prune also calls prune_configs(),
+       which forgets the tracked config links — including the one that keeps the
+       declared versions alive on the next prune. */ -}}
+{{- $installScript := list "set -eu" "mise install" "mise --yes prune --tools" -}}
 {{- $sched := $v.scheduling | default dict -}}
 {{- $res := $v.resources | default dict -}}
 {{- $repo := $image.repository | default "ghcr.io/infiniteprimates/nilchela" -}}
@@ -248,8 +270,10 @@ controllers:
           repository: {{ $repo }}
           tag: {{ $tag | quote }}
           pullPolicy: {{ $pull }}
-        command: ["mise"]
-        args: ["install"]
+        command: ["sh", "-c"]
+        args:
+          - |-
+{{ join "\n" $installScript | indent 12 }}
         securityContext:
           runAsUser: 0
           runAsGroup: 0

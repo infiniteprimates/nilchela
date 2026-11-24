@@ -404,10 +404,24 @@ def run_checks(manifests: list[dict], chart_dir: str, checker: Checker) -> None:
             "install-tools runs as root (it writes the root-owned /tools)",
             (installer.get("securityContext") or {}).get("runAsUser") == 0,
         )
+        script = "".join(installer.get("args") or [])
         checker.check(
-            "install-tools runs `mise install`",
-            (installer.get("command") or [None])[0] == "mise"
-            and "install" in (installer.get("args") or []),
+            "install-tools runs `mise install` from a fail-fast script",
+            (installer.get("command") or [])[:2] == ["sh", "-c"]
+            and script.splitlines()[:1] == ["set -eu"]
+            and "mise install" in script,
+            f"command={installer.get('command')!r} args={installer.get('args')!r}",
+        )
+        # The volume is declarative, and it is this container that makes it so:
+        # the chart never writes a guard, so a prune that cannot converge fails
+        # the rollout instead of leaving versions to accumulate. This renders on
+        # the default (no tools pinned) path too, which is why the contract layer
+        # can check it at all.
+        checker.check(
+            "install-tools prunes the tools volume afterwards, unguarded",
+            script.splitlines()[-1:] == ["mise --yes prune --tools"]
+            and "||" not in script,
+            f"script={script!r}",
         )
         # This is the load-bearing translation assumption: the library resolves
         # `advancedMounts.main.<initContainer-key>`, so an initContainer can be
