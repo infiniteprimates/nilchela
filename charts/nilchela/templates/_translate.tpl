@@ -39,16 +39,14 @@
        the declarative statement, and it also reclaims a tool that was dropped
        from `mise.tools` altogether.
 
+       It runs unconditionally, including when `mise.tools` is empty: declaring no
+       tools means the volume should hold none, and getting them back is an edit
+       to this file. Guessing otherwise is how a chart stops describing state.
+
        `--tools` still matters: without it, prune also calls prune_configs(),
        which forgets the tracked config links — including the one that keeps the
-       declared versions alive on the next prune.
-
-       Skipped only when `mise.tools` is empty: nothing is declared, the chart has
-       no opinion, and an unscoped prune would empty the volume. */ -}}
-{{- $installScript := list "set -eu" "mise install" -}}
-{{- if gt (len $tools) 0 -}}
-{{- $installScript = append $installScript "mise --yes prune --tools" -}}
-{{- end -}}
+       declared versions alive on the next prune. */ -}}
+{{- $installScript := list "set -eu" "mise install" "mise --yes prune --tools" -}}
 {{- $sched := $v.scheduling | default dict -}}
 {{- $res := $v.resources | default dict -}}
 {{- $repo := $image.repository | default "ghcr.io/infiniteprimates/nilchela" -}}

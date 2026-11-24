@@ -81,8 +81,9 @@ mise:
   # /tools is the chart's, not the agent's: only this container writes to it, and
   # only from this config, so everything on it is the chart's to delete.
   #
-  # It is skipped when `tools` is empty: with nothing declared the chart has no
-  # opinion about the volume, and an unscoped prune would empty it.
+  # It runs even when `tools` is empty: declaring no tools means the volume should
+  # hold none. A missing pin is a state to converge on, not a reason to guess —
+  # and getting the toolchains back is an edit to this file.
   #
   # A prune that fails fails the init container, and therefore the rollout: a
   # warning-only failure is a volume that fills up over releases with nobody

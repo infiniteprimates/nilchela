@@ -728,10 +728,12 @@ tests:
           value: 65534:65534
 
   # The installer is one shell script, not a bare `mise install`: install and
-  # prune are one operation and mise has no command that does both. With
-  # `mise.tools` empty the chart has no opinion about the volume, and an unscoped
-  # prune would empty it — so nothing is pruned.
-  - it: installs toolchains with mise, and prunes nothing when no tool is pinned
+  # prune are one operation and mise has no command that does both.
+  #
+  # It runs with `mise.tools` empty too — declaring no tools means the volume
+  # should hold none, so an empty table prunes every toolchain rather than nothing.
+  # Guessing at intent here is how the chart would stop describing state.
+  - it: installs then prunes, even when no tool is pinned
     documentSelector:
       path: kind
       value: StatefulSet
@@ -744,16 +746,23 @@ tests:
           value: |-
             set -eu
             mise install
+            mise --yes prune --tools
 
   # Order inside the script is the contract: `mise prune` decides what is unused
   # from the config files mise has tracked, so a prune that ran before the
   # install would see no tracked config and delete the whole toolchain set.
   #
-  # The prune carries no tool names, and that is the contract too: /tools is the
-  # chart's alone (the agent mounts it read-only), so an unscoped tools-prune is
-  # exactly "make the volume match the config". Both cases below assert the same
-  # bytes for different pins, which is what proves no name leaks into the command.
-  - it: prunes the tools unscoped, after installing what the config pins
+  # The prune carries no tool names either, and that is the contract too: /tools
+  # is the chart's alone (the agent mounts it read-only), so an unscoped
+  # tools-prune is exactly "make the volume match the config". Two different pin
+  # sets asserting the same bytes is what proves no name leaks into the command.
+  #
+  # It is also unguarded. A chart is declarative, so a prune that cannot converge
+  # the volume must fail the init container: a `|| echo` turns a broken prune into
+  # a volume that fills up over releases with nobody watching, which is the worse
+  # failure of the two. `--yes` is part of the same contract — an init container
+  # has no TTY, and an unflagged prune stops to ask per version.
+  - it: pins never change the command, and the prune is never guarded
     set:
       mise.tools:
         rust:
@@ -770,29 +779,12 @@ tests:
             set -eu
             mise install
             mise --yes prune --tools
-
-  # The prune is a gate, not a courtesy. A chart is declarative: a tool dropped
-  # from `tools` must leave the volume, and a prune that cannot do that must fail
-  # the init container. A guarded prune (`|| echo`) turns a broken prune into a
-  # volume that fills up over releases with nobody watching, which is the worse
-  # failure of the two. `--yes` is part of the same contract — an init container
-  # has no TTY, and an unflagged prune stops to ask per version.
-  - it: runs the prune unguarded and unnamed, so a failure fails the rollout
-    set:
-      mise.tools.go: 1.27.1
-    documentSelector:
-      path: kind
-      value: StatefulSet
-    asserts:
-      - equal:
-          path: spec.template.spec.initContainers[2].args[0]
-          value: |-
-            set -eu
-            mise install
-            mise --yes prune --tools
       - notMatchRegex:
           path: spec.template.spec.initContainers[2].args[0]
           pattern: '\|\|'
+      - notMatchRegex:
+          path: spec.template.spec.initContainers[2].args[0]
+          pattern: 'go|rust'
 
   # ---------------------------------------------------------------------------
   # volumes.extra nested inside a chart volume -> prepare-mounts

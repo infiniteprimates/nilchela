@@ -108,7 +108,7 @@ its own, both consequences of mounting a volume:
 | Promise | Where it lives | Why |
 |---|---|---|
 | The installer runs as root | `_translate.tpl` → `install-tools` (`runAsUser: 0`) | `/tools` is root-owned; that is what lets the agent mount it read-only |
-| Superseded tool versions do not accumulate | `_translate.tpl` → `install-tools`, one script: `mise install`, then `mise prune --tools …` | the tools volume is retained across releases and mounted read-only into the agent, so nothing in the pod can reclaim a version a pin bump orphaned. Scoped to the declared tools, so an agent's own toolchains are not swept up |
+| Superseded tool versions do not accumulate | `_translate.tpl` → `install-tools`, one script: `mise install`, then `mise --yes prune --tools` | the tools volume is retained across releases and mounted read-only into the agent, so nothing in the pod can reclaim a version a pin bump orphaned — or a tool dropped from `tools` entirely. The prune is unscoped because the volume is the chart's alone; and it fails the rollout rather than warning |
 | The agent runs non-root | `_translate.tpl` → `main` (`runAsUser: 65534`) | the image's posture, preserved |
 | The agent cannot write `/tools` | `_translate.tpl` → `advancedMounts.main.{install-tools,main}` | the one mount needing per-container modes: RW for the installer, `readOnly: true` for the agent |
 | No `fsGroup` | nowhere — by omission | an fsGroup hands the agent's group write access to `/tools`; with a root-owned installer that is an escalation path into the toolchains the agent is about to execute |
@@ -240,9 +240,9 @@ There is no mute switch. A chart is declarative: a version that leaves `tools`
 leaves the volume. `mise ls --prunable` inside the pod shows what the next install
 will remove.
 
-The one thing the prune does *not* do is run against an empty `tools` table. With
-nothing declared the chart has no opinion about the volume, and an unscoped prune
-would empty it — a missing pin should not read as "delete every toolchain".
+The prune runs even against an empty `tools` table. Declaring no tools means the
+volume should hold none; a missing pin is a state to converge on, not a reason for
+the chart to guess, and getting the toolchains back is an edit to `tools`.
 
 ### Overriding the rest
 
