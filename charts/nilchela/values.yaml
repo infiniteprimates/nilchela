@@ -69,20 +69,20 @@ mise:
 
   # `mise prune` runs immediately after the install, in the same init container,
   # and is not switchable off. A chart is declarative: if a version leaves
-  # `tools`, it leaves the image.
+  # `tools`, it leaves the volume.
   #
   # `mise prune` deletes installed versions of a tool that no tracked config
-  # selects — for a pod whose only config is this one, that means exactly the
-  # versions a previous pin left behind when you bumped `tools`. Nothing else can
-  # reclaim them: the tools volume is retained across releases, and the agent
-  # sees it read-only.
+  # selects — for a pod whose only config is this one, that means the versions a
+  # previous pin left behind when you bumped `tools`, and the toolchains of a tool
+  # you removed from `tools` entirely. Nothing else can reclaim them: the tools
+  # volume is retained across releases, and the agent mounts it read-only.
   #
-  # Scoped to the tools declared above, never to everything installed under
-  # /tools: the agent installs into the same MISE_DATA_DIR, so a bare
-  # `mise prune` would delete a toolchain it fetched for a project of its own.
-  # A version of a *declared* tool is fair game — prune treats this config as
-  # the only authority — so an agent that wants to keep its own pin of one of
-  # these tools must pin that version here instead.
+  # The prune is unscoped on purpose — it is not limited to the tool names above.
+  # /tools is the chart's, not the agent's: only this container writes to it, and
+  # only from this config, so everything on it is the chart's to delete.
+  #
+  # It is skipped when `tools` is empty: with nothing declared the chart has no
+  # opinion about the volume, and an unscoped prune would empty it.
   #
   # A prune that fails fails the init container, and therefore the rollout: a
   # warning-only failure is a volume that fills up over releases with nobody

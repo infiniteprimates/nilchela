@@ -25,29 +25,29 @@
 {{- $extra := $volumes.extra | default dict -}}
 {{- $tools := ($v.mise | default dict).tools | default dict -}}
 {{- $miseEnv := ($v.mise | default dict).env | default dict -}}
-{{- /* Tool names for the prune, sorted: Go template ranges a map in key order,
-       so the rendered command is stable and diffable between releases. */ -}}
-{{- $toolNames := list -}}
-{{- range $k, $_ := $tools -}}{{- $toolNames = append $toolNames $k -}}{{- end -}}
 {{- /* The installer's script. One script rather than one mise subcommand,
        because mise has no command that both installs and prunes, and the two are
        one operation: prune decides what is unused from the config files mise has
        TRACKED, so a prune that ran before the install would see no tracked
        config and delete every toolchain on the volume.
 
-       `--yes` because prune asks per version, and an init container has no TTY;
-       `--tools <names>` scopes it to the tools this chart declares, so an agent's
-       own ad-hoc toolchain in the shared MISE_DATA_DIR is not swept up.
+       `--yes` because prune asks per version, and an init container has no TTY.
 
-       The prune is neither optional nor guarded. A chart is declarative: a
-       version dropped from `mise.tools` must leave the image, and a prune that
-       fails must fail the container rather than leave /tools to fill up over
-       releases with nobody watching. With no declared tools there is nothing of
-       the chart's to prune, and `--tools` with no names would sweep the agent's
-       own toolchains, so the prune is skipped only in that case. */ -}}
+       No positional tool filter: /tools belongs to the chart, not to the agent —
+       the agent mounts it read-only, so every toolchain on it was installed by
+       this container from this config. A bare tools-prune is therefore exactly
+       the declarative statement, and it also reclaims a tool that was dropped
+       from `mise.tools` altogether.
+
+       `--tools` still matters: without it, prune also calls prune_configs(),
+       which forgets the tracked config links — including the one that keeps the
+       declared versions alive on the next prune.
+
+       Skipped only when `mise.tools` is empty: nothing is declared, the chart has
+       no opinion, and an unscoped prune would empty the volume. */ -}}
 {{- $installScript := list "set -eu" "mise install" -}}
-{{- if gt (len $toolNames) 0 -}}
-{{- $installScript = append $installScript (printf "mise --yes prune --tools %s" (join " " $toolNames)) -}}
+{{- if gt (len $tools) 0 -}}
+{{- $installScript = append $installScript "mise --yes prune --tools" -}}
 {{- end -}}
 {{- $sched := $v.scheduling | default dict -}}
 {{- $res := $v.resources | default dict -}}

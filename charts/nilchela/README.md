@@ -214,7 +214,7 @@ same container and the same shell script:
 ```text
 set -eu
 mise install
-mise --yes prune --tools go rust
+mise --yes prune --tools
 ```
 
 Three properties of that line are deliberate:
@@ -222,11 +222,13 @@ Three properties of that line are deliberate:
 - **After the install, never before.** `mise prune` decides what is unused from
   the config files mise has *tracked*. Run first, against a volume with no tracked
   config yet, it would delete every toolchain it can see.
-- **Scoped to `mise.tools`.** The agent installs into the same `MISE_DATA_DIR`
-  (`/tools`), so a bare `mise prune` would sweep toolchains it fetched for its own
-  projects. Only the tools this chart declares are named. A *version of a declared
-  tool* is still fair game — prune treats this config as the only authority — so an
-  agent keeping its own pin of a chart tool must move that pin into `mise.tools`.
+- **Unscoped, deliberately.** `/tools` is the chart's, not the agent's: the agent
+  mounts it read-only, so this init container is the only writer, and it writes
+  only what this config says. Everything on the volume is therefore the chart's to
+  delete — which is what reclaims a tool you dropped from `tools` entirely, not
+  just a version you bumped. `--tools` is still passed, because without it prune
+  also forgets the *tracked config links*, including the one that keeps your
+  declared versions alive for the next prune.
 - **It fails the rollout.** Stale versions cost disk; a prune that quietly does
   nothing costs disk *silently*, and the volume fills up over releases with nobody
   watching. `set -eu` means a failed prune fails the init container, so the bad
@@ -235,12 +237,12 @@ Three properties of that line are deliberate:
   no TTY.
 
 There is no mute switch. A chart is declarative: a version that leaves `tools`
-leaves the image. `mise ls --prunable` inside the pod shows what the next install
+leaves the volume. `mise ls --prunable` inside the pod shows what the next install
 will remove.
 
-One gap is deliberate: a tool you remove from `mise.tools` *entirely* is not
-pruned, because its name is no longer in the command. Drop it by hand — `mise
-uninstall <tool>` as root against the tools volume — before it goes stale.
+The one thing the prune does *not* do is run against an empty `tools` table. With
+nothing declared the chart has no opinion about the volume, and an unscoped prune
+would empty it — a missing pin should not read as "delete every toolchain".
 
 ### Overriding the rest
 

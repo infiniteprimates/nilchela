@@ -25,7 +25,7 @@
       "properties": {
         "tools": {
           "type": "object",
-          "description": "mise [tools] table. Values are version strings, or a map of tool options (rendered as a TOML sub-table). Declarative: a version that leaves this table is pruned from the tools volume by the installer's init container, which fails the rollout if the prune fails. There is no switch to turn the prune off."
+          "description": "mise [tools] table. Values are version strings, or a map of tool options (rendered as a TOML sub-table). Declarative: a tool or version that leaves this table is pruned from the tools volume by the installer's init container, which fails the rollout if the prune fails. There is no switch to turn the prune off, and an empty table prunes nothing."
         },
         "env": {
           "type": "object",
