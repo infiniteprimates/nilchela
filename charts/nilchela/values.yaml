@@ -67,7 +67,9 @@ mise:
     # UV_CACHE_DIR: /cache/uv           # Python — uv cache
     # PIP_CACHE_DIR: /cache/pip         # Python — pip cache
 
-  # Garbage-collect superseded tool versions after the install. On by default.
+  # `mise prune` runs immediately after the install, in the same init container,
+  # and is not switchable off. A chart is declarative: if a version leaves
+  # `tools`, it leaves the image.
   #
   # `mise prune` deletes installed versions of a tool that no tracked config
   # selects — for a pod whose only config is this one, that means exactly the
@@ -78,13 +80,14 @@ mise:
   # Scoped to the tools declared above, never to everything installed under
   # /tools: the agent installs into the same MISE_DATA_DIR, so a bare
   # `mise prune` would delete a toolchain it fetched for a project of its own.
-  # A version of a *declared* tool is still fair game — prune treats this config
-  # as the only authority — so mute this key if an agent keeps its own pin of one
-  # of these tools and you would rather keep it across restarts.
+  # A version of a *declared* tool is fair game — prune treats this config as
+  # the only authority — so an agent that wants to keep its own pin of one of
+  # these tools must pin that version here instead.
   #
-  # It runs after the install, in the same init container, and cannot fail the
-  # pod: a failed prune prints one warning and leaves the versions in place.
-  prune: true
+  # A prune that fails fails the init container, and therefore the rollout: a
+  # warning-only failure is a volume that fills up over releases with nobody
+  # watching. If a prune is genuinely wrong for your deployment, the fix belongs
+  # in `tools`, not in a mute switch.
 
 # Extra container environment, verbatim. `ZEROCLAW_`-prefixed keys set the
 # daemon's own config in schema-mirror form (ZEROCLAW_gateway__host). The bind

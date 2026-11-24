@@ -25,14 +25,6 @@
 {{- $extra := $volumes.extra | default dict -}}
 {{- $tools := ($v.mise | default dict).tools | default dict -}}
 {{- $miseEnv := ($v.mise | default dict).env | default dict -}}
-{{- /* Default ON when the key is merely absent, the same `hasKey` idiom as
-       upgrade.configMigrate: `helm upgrade --reuse-values` does not apply this
-       chart's defaults, so the key can be missing from the coalesced map.
-       `default` cannot be used here — sprig's `empty` treats false as empty, so
-       `| default true` would silently re-enable an explicit off. */ -}}
-{{- $pruneCfg := $v.mise | default dict -}}
-{{- $pruneOn := true -}}
-{{- if hasKey $pruneCfg "prune" -}}{{- $pruneOn = $pruneCfg.prune -}}{{- end -}}
 {{- /* Tool names for the prune, sorted: Go template ranges a map in key order,
        so the rendered command is stable and diffable between releases. */ -}}
 {{- $toolNames := list -}}
@@ -47,11 +39,15 @@
        `--tools <names>` scopes it to the tools this chart declares, so an agent's
        own ad-hoc toolchain in the shared MISE_DATA_DIR is not swept up.
 
-       The prune cannot fail the container: stale versions cost disk, a failed
-       init container costs the service. A failure prints one warning per start. */ -}}
+       The prune is neither optional nor guarded. A chart is declarative: a
+       version dropped from `mise.tools` must leave the image, and a prune that
+       fails must fail the container rather than leave /tools to fill up over
+       releases with nobody watching. With no declared tools there is nothing of
+       the chart's to prune, and `--tools` with no names would sweep the agent's
+       own toolchains, so the prune is skipped only in that case. */ -}}
 {{- $installScript := list "set -eu" "mise install" -}}
-{{- if and $pruneOn (gt (len $toolNames) 0) -}}
-{{- $installScript = append $installScript (printf "mise --yes prune --tools %s || echo 'nilchela: mise prune failed; superseded tool versions left in /tools' >&2" (join " " $toolNames)) -}}
+{{- if gt (len $toolNames) 0 -}}
+{{- $installScript = append $installScript (printf "mise --yes prune --tools %s" (join " " $toolNames)) -}}
 {{- end -}}
 {{- $sched := $v.scheduling | default dict -}}
 {{- $res := $v.resources | default dict -}}

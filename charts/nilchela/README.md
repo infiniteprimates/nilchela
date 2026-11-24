@@ -214,7 +214,7 @@ same container and the same shell script:
 ```text
 set -eu
 mise install
-mise --yes prune --tools go rust || echo 'nilchela: mise prune failed; …' >&2
+mise --yes prune --tools go rust
 ```
 
 Three properties of that line are deliberate:
@@ -226,16 +226,17 @@ Three properties of that line are deliberate:
   (`/tools`), so a bare `mise prune` would sweep toolchains it fetched for its own
   projects. Only the tools this chart declares are named. A *version of a declared
   tool* is still fair game — prune treats this config as the only authority — so an
-  agent keeping its own pin of a chart tool should either be moved into
-  `mise.tools` or `mise.prune: false`.
-- **It cannot fail the pod.** Stale versions cost disk; a failed init container
-  costs the service. A prune that errors prints one warning and leaves everything
-  in place, and `--yes` is what makes it unattended — without it, `mise prune`
-  stops to confirm each version and an init container has no TTY.
+  agent keeping its own pin of a chart tool must move that pin into `mise.tools`.
+- **It fails the rollout.** Stale versions cost disk; a prune that quietly does
+  nothing costs disk *silently*, and the volume fills up over releases with nobody
+  watching. `set -eu` means a failed prune fails the init container, so the bad
+  state is visible at deploy time. `--yes` is what makes the prune unattended —
+  without it, `mise prune` stops to confirm each version and an init container has
+  no TTY.
 
-Set `mise.prune: false` to leave the volume alone; versions then accumulate as
-they did before `0.2.3`. `mise ls --prunable` inside the pod shows what the next
-install would remove.
+There is no mute switch. A chart is declarative: a version that leaves `tools`
+leaves the image. `mise ls --prunable` inside the pod shows what the next install
+will remove.
 
 One gap is deliberate: a tool you remove from `mise.tools` *entirely* is not
 pruned, because its name is no longer in the command. Drop it by hand — `mise
@@ -252,9 +253,8 @@ image:
   pullPolicy: IfNotPresent
 
 mise:                          # rendered into the chart's mise.toml
-  tools: {}                    # pin exactly, no ranges
+  tools: {}                    # pin exactly, no ranges; pruning is automatic
   env: {}                      # per-tool cache variables, see Configuration
-  prune: true                  # delete superseded versions of the pinned tools
 
 env: {}                        # the container's own env, verbatim
 

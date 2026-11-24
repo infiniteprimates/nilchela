@@ -767,29 +767,17 @@ tests:
           value: |-
             set -eu
             mise install
-            mise --yes prune --tools go rust || echo 'nilchela: mise prune failed; superseded tool versions left in /tools' >&2
+            mise --yes prune --tools go rust
 
-  # A failed prune must not keep the pod down: stale versions cost disk, a failed
-  # init container costs the service. `--yes` is part of the same contract — an
+  # The prune is a gate, not a courtesy. A chart is declarative: a version
+  # dropped from `tools` must leave the image, and a prune that cannot do that
+  # must fail the init container. A guarded prune (`|| echo`) turns a broken
+  # prune into a volume that fills up over releases with nobody watching, which
+  # is the worse failure of the two. `--yes` is part of the same contract — an
   # init container has no TTY, and an unflagged prune stops to ask per version.
-  - it: keeps the pod bootable when the prune fails
+  - it: runs the prune unguarded, so a failed prune fails the rollout
     set:
       mise.tools.go: 1.27.1
-    documentSelector:
-      path: kind
-      value: StatefulSet
-    asserts:
-      - matchRegex:
-          path: spec.template.spec.initContainers[2].args[0]
-          pattern: '(?m)^mise --yes prune --tools go \|\| echo '
-      - notMatchRegex:
-          path: spec.template.spec.initContainers[2].args[0]
-          pattern: '(?m)^mise prune '
-
-  - it: renders no prune when mise.prune is false
-    set:
-      mise.tools.go: 1.27.1
-      mise.prune: false
     documentSelector:
       path: kind
       value: StatefulSet
@@ -799,6 +787,10 @@ tests:
           value: |-
             set -eu
             mise install
+            mise --yes prune --tools go
+      - notMatchRegex:
+          path: spec.template.spec.initContainers[2].args[0]
+          pattern: '\|\|'
 
   # ---------------------------------------------------------------------------
   # volumes.extra nested inside a chart volume -> prepare-mounts
